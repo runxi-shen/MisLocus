@@ -97,9 +97,6 @@ class MisLocusSubCellDataset(Dataset):
         expected = frame.Metadata_gene_allele.map(class_index)
         if expected.isna().any() or not np.array_equal(expected, frame.class_index):
             raise ValueError('Unknown allele or inconsistent canonical class index')
-        self.num_classes = len(class_index)
-        self.class_index = class_index
-        self.frame = frame
         self.rows = {int(i): (base, int(local), int(label)) for i, base, local, label in
                      frame[['base_path', 'cell_idx', 'class_index']].itertuples(index=True, name=None)}
         self.positions = frame.index.to_numpy()
@@ -123,18 +120,6 @@ class MisLocusSubCellDataset(Dataset):
             raise ValueError(f'Out-of-bounds crop row: {base}[{local}]')
         image = torch.from_numpy(np.stack([a[local] for a in arrays]).astype(np.float32))
         return {'image': image, 'allele': allele, 'cell_index': int(index), 'mask': None}
-
-
-class EvaluationCells(Dataset):
-    """Positional adapter for native DistributedSampler's padded validation indices."""
-    def __init__(self, dataset):
-        self.dataset = dataset
-
-    def __len__(self):
-        return len(self.dataset)
-
-    def __getitem__(self, position):
-        return self.dataset[int(self.dataset.positions[position])]
 
 
 def collate_cells(cells):
