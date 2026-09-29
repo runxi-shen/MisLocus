@@ -25,7 +25,7 @@ from torch.utils.checkpoint import checkpoint
 
 from prot_loc_benchmark.config import SUBCELL_SCALE_FACTOR
 from prot_loc_benchmark.preprocessing.subcell import SubCellPreprocessor
-from .subcell_allele_data import AlleleBatchSampler, MisLocusSubCellDataset, collate_cells
+from .subcell_finetune import AlleleBatchSampler, MisLocusSubCellDataset, collate_cells
 from .subcell_manifest import save_json, sha256
 
 

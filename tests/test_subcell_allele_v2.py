@@ -15,7 +15,7 @@ from models.get_models import get_model_dict
 from models.ntxent import get_contrastive_loss
 from prot_loc_benchmark.config import ALL_PUBLIC_BATCHES, SUBCELL_CHANNEL_FILES
 from prot_loc_benchmark.preprocessing.subcell import SubCellPreprocessor
-from prot_loc_benchmark.representations.subcell_allele_data import (
+from prot_loc_benchmark.representations.subcell_finetune import (
     AlleleBatchSampler, MisLocusSubCellDataset, collate_cells, fixed_validation, stratified_draw,
 )
 from prot_loc_benchmark.representations.subcell_manifest import add_plate_maps, align_crop_rows, sha256, split_for_plate

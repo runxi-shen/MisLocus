@@ -18,7 +18,7 @@ from lightning.pytorch.callbacks import Callback, EarlyStopping
 from test_subcell_allele_v2 import make_cohort, tiny_components
 from prot_loc_benchmark import provenance
 from prot_loc_benchmark.preprocessing.subcell import SubCellPreprocessor
-from prot_loc_benchmark.representations.subcell_allele_data import fixed_validation
+from prot_loc_benchmark.representations.subcell_finetune import fixed_validation
 from prot_loc_benchmark.representations.subcell_run import AlleleCheckpoint, require_resumable, verify_selection
 from prot_loc_benchmark.representations.subcell_training import AlleleDataModule, SubCellAlleleModule
 

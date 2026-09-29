@@ -24,7 +24,7 @@ from lightning.pytorch.strategies import DDPStrategy
 
 from test_subcell_allele_v2 import make_cohort, tiny_components
 from prot_loc_benchmark.preprocessing.subcell import SubCellPreprocessor
-from prot_loc_benchmark.representations.subcell_allele_data import fixed_validation
+from prot_loc_benchmark.representations.subcell_finetune import fixed_validation
 from prot_loc_benchmark.representations.subcell_manifest import save_json
 from prot_loc_benchmark.representations.subcell_training import (
     AlleleDataModule, SubCellAlleleModule, lr_factor, enable_checkpointing,
