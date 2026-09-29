@@ -1,0 +1,504 @@
+{
+  "batch_split_counts": {
+    "2024_01_23_Batch_7": {
+      "test": 218905,
+      "train": 404871,
+      "val": 230492
+    },
+    "2024_02_06_Batch_8": {
+      "test": 72584,
+      "train": 130211,
+      "val": 71140
+    },
+    "2025_01_27_Batch_13": {
+      "test": 170251,
+      "train": 374269,
+      "val": 179562
+    },
+    "2025_01_28_Batch_14": {
+      "test": 156736,
+      "train": 339817,
+      "val": 187004
+    },
+    "2025_03_17_Batch_15": {
+      "test": 84994,
+      "train": 190615,
+      "val": 93192
+    },
+    "2025_03_17_Batch_16": {
+      "test": 97332,
+      "train": 221579,
+      "val": 108755
+    }
+  },
+  "between_seed_rng_states_distinct": true,
+  "checksum_files": {
+    "subcell-v2-payloads.sha256": "be899759dda1f8270ff3841696e4a5ce3a605beecd146162d7179bc05dcac933",
+    "subcell-v2-receipts.sha256": "61025247b6ec1576ba0be59ce648ecf5fa0ef827269eff4debcd8fc479d7ffc6"
+  },
+  "checksum_scope": {
+    "includes_crop_payload_files": false,
+    "note": "Relative to ARTIFACT_ROOT; receipts/snapshots and separately listed weights/exports, not raw crop rehash",
+    "payloads_count": 25,
+    "receipts_count": 115
+  },
+  "classes": 1562,
+  "cohort_root": "subcell-training/cf70fbaedf64874907730f8b8db3a62d79149164/cohort-common-preparer",
+  "control_root": "subcell-training/cf70fbaedf64874907730f8b8db3a62d79149164/jobs/extraction-s42-all-20260923-v1",
+  "crop_rehash": {
+    "bytes_verified": 436847345580,
+    "extraction_sha256": "1422f5491d3f650dcd8d864210f02debcd94dbaf1929f230b7fb7b81f91eea31",
+    "files_verified": 17060,
+    "revision": "cf70fbaedf64874907730f8b8db3a62d79149164",
+    "verified_at": "2026-09-23T19:45:47.435506+00:00"
+  },
+  "export_root": "mislocus-derived/cf70fbaedf64874907730f8b8db3a62d79149164/exports/subcell-s42-all-20260923-v1",
+  "exports": {
+    "mae": {
+      "cells": 3332309,
+      "cgroup_memory_peak_bytes": 51541704704,
+      "checkpoint_sha256": "748cde329fd51bfaad29be501fab1db8d54dce5823d45865f9947a683e90eafd",
+      "constant_cells": 0,
+      "dtype": "float32",
+      "duration_seconds_before_final_provenance_writes": 7467.422369704582,
+      "features": 1536,
+      "gpu": {
+        "capability": [
+          9,
+          0
+        ],
+        "name": "NVIDIA H100 NVL",
+        "peak_allocated_bytes": 945343488
+      },
+      "memory_events": {
+        "high": 13030,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0
+      },
+      "outputs": {
+        "2024_01_23_Batch_7": {
+          "cells": 854268,
+          "ordered_cell_ids_sha256": "a6ef7034edbe9e5bf8040c561bb372458f7f59ff9e32aa95cfbcbea99afef09a",
+          "sha256": "9605b6ca61530f408450479339f599925137958314cd5494d9b75c807cc18bb1",
+          "split_counts": {
+            "test": 218905,
+            "train": 404871,
+            "val": 230492
+          }
+        },
+        "2024_02_06_Batch_8": {
+          "cells": 273935,
+          "ordered_cell_ids_sha256": "433adf3caec0f9588bfea394d0b3264972327df05e904b2c8eb44c87bfe614d3",
+          "sha256": "33221659929007d0c2dad780f5e107f61986688ce589b588eb9b31a646f10c27",
+          "split_counts": {
+            "test": 72584,
+            "train": 130211,
+            "val": 71140
+          }
+        },
+        "2025_01_27_Batch_13": {
+          "cells": 724082,
+          "ordered_cell_ids_sha256": "a2d3b850537a303e33229018f05878796e68059c348c559221457ce4e74f78fa",
+          "sha256": "76fd8be0a31370cc57729112dec3f375c8ab396fdb8bd5fa0df7347380f1294e",
+          "split_counts": {
+            "test": 170251,
+            "train": 374269,
+            "val": 179562
+          }
+        },
+        "2025_01_28_Batch_14": {
+          "cells": 683557,
+          "ordered_cell_ids_sha256": "f352cbdf92cc3405a55d1946a6896552d50a30cc304ab8a66ea5bc320782e1c7",
+          "sha256": "6f910450b20fd1dd0dd0be180e9fd9168c6ad5a39052cf39bc7d5f7a5994757b",
+          "split_counts": {
+            "test": 156736,
+            "train": 339817,
+            "val": 187004
+          }
+        },
+        "2025_03_17_Batch_15": {
+          "cells": 368801,
+          "ordered_cell_ids_sha256": "cfb6509d75dfeb148a745bd836a42ceacf0114493cf6042b99b87dda148aac65",
+          "sha256": "347823e972b7c25d9e0507e6e68d8e9479f822d4499ab9e099b7800d46cd7a76",
+          "split_counts": {
+            "test": 84994,
+            "train": 190615,
+            "val": 93192
+          }
+        },
+        "2025_03_17_Batch_16": {
+          "cells": 427666,
+          "ordered_cell_ids_sha256": "202a67183dda09756b89d6752a3f2422e5581f71999486d67d2b2550b321739d",
+          "sha256": "68e3bb143fbba0c8e926e63aceb7fb3d1048655d64c0808ec1456f290856326e",
+          "split_counts": {
+            "test": 97332,
+            "train": 221579,
+            "val": 108755
+          }
+        }
+      },
+      "pilot_repeat_max_abs_error": 0.0,
+      "receipt_sha256": "050bff3cc61b7fa68986058df9585f17d80191d71484bf08b2b24f9668992495",
+      "representation": "subcell_allele_rybg_v2_mae_s42",
+      "runtime": {
+        "cublas_workspace_config": null,
+        "cuda": "12.4",
+        "cuda_matmul_allow_tf32": true,
+        "cudnn": 90100,
+        "cudnn_allow_tf32": true,
+        "cudnn_benchmark": false,
+        "cudnn_deterministic": false,
+        "deterministic_algorithms": false,
+        "deterministic_warn_only": false,
+        "flash_sdp": true,
+        "math_sdp": true,
+        "matmul_precision": "high",
+        "mem_efficient_sdp": true,
+        "python": "3.12.13",
+        "versions": {
+          "lightning": "2.6.1",
+          "numpy": "1.26.4",
+          "pandas": "3.0.2",
+          "scikit-learn": "1.8.0",
+          "timm": "1.0.26",
+          "torch": "2.4.1",
+          "torchvision": "0.19.1",
+          "transformers": "4.45.2"
+        }
+      }
+    },
+    "vit": {
+      "cells": 3332309,
+      "cgroup_memory_peak_bytes": 51541704704,
+      "checkpoint_sha256": "8733e38a4d23a7c21d5ad20492614747554aaba8adbec817c47d3b10acb258ce",
+      "constant_cells": 0,
+      "dtype": "float32",
+      "duration_seconds_before_final_provenance_writes": 7469.453636645339,
+      "features": 1536,
+      "gpu": {
+        "capability": [
+          9,
+          0
+        ],
+        "name": "NVIDIA H100 NVL",
+        "peak_allocated_bytes": 945237504
+      },
+      "memory_events": {
+        "high": 7894,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0
+      },
+      "outputs": {
+        "2024_01_23_Batch_7": {
+          "cells": 854268,
+          "ordered_cell_ids_sha256": "a6ef7034edbe9e5bf8040c561bb372458f7f59ff9e32aa95cfbcbea99afef09a",
+          "sha256": "f7dba120d868319998474aeb046f3941147042a5abca80888b5fda0fbad1728b",
+          "split_counts": {
+            "test": 218905,
+            "train": 404871,
+            "val": 230492
+          }
+        },
+        "2024_02_06_Batch_8": {
+          "cells": 273935,
+          "ordered_cell_ids_sha256": "433adf3caec0f9588bfea394d0b3264972327df05e904b2c8eb44c87bfe614d3",
+          "sha256": "f5de24a4345adfe1583bb21de23ec5637295ff714fb4c2889560dc0cba09578c",
+          "split_counts": {
+            "test": 72584,
+            "train": 130211,
+            "val": 71140
+          }
+        },
+        "2025_01_27_Batch_13": {
+          "cells": 724082,
+          "ordered_cell_ids_sha256": "a2d3b850537a303e33229018f05878796e68059c348c559221457ce4e74f78fa",
+          "sha256": "a09855cbcb6be4fea7e6f6ed69e6af0c063122b7b6aee1e070d0d85d50e1dd26",
+          "split_counts": {
+            "test": 170251,
+            "train": 374269,
+            "val": 179562
+          }
+        },
+        "2025_01_28_Batch_14": {
+          "cells": 683557,
+          "ordered_cell_ids_sha256": "f352cbdf92cc3405a55d1946a6896552d50a30cc304ab8a66ea5bc320782e1c7",
+          "sha256": "8187beb631121960f8e7cdb2bdb622c1eb69c6180ead56acb01e3db84cbd1c28",
+          "split_counts": {
+            "test": 156736,
+            "train": 339817,
+            "val": 187004
+          }
+        },
+        "2025_03_17_Batch_15": {
+          "cells": 368801,
+          "ordered_cell_ids_sha256": "cfb6509d75dfeb148a745bd836a42ceacf0114493cf6042b99b87dda148aac65",
+          "sha256": "6cf8fbf287aca4d716228e6cf35c261f17d6218c43eb35a034e3255d1bb5d56a",
+          "split_counts": {
+            "test": 84994,
+            "train": 190615,
+            "val": 93192
+          }
+        },
+        "2025_03_17_Batch_16": {
+          "cells": 427666,
+          "ordered_cell_ids_sha256": "202a67183dda09756b89d6752a3f2422e5581f71999486d67d2b2550b321739d",
+          "sha256": "09d5015e52b00837684450d3d1088fdeda462b95ce7c6401fe8949799dc44dca",
+          "split_counts": {
+            "test": 97332,
+            "train": 221579,
+            "val": 108755
+          }
+        }
+      },
+      "pilot_repeat_max_abs_error": 0.0,
+      "receipt_sha256": "84e9ed76e72416e7618c0d1f88ec06fcf28cc64b914f7b7de8ea8214c2e7aa64",
+      "representation": "subcell_allele_rybg_v2_vit_s42",
+      "runtime": {
+        "cublas_workspace_config": null,
+        "cuda": "12.4",
+        "cuda_matmul_allow_tf32": true,
+        "cudnn": 90100,
+        "cudnn_allow_tf32": true,
+        "cudnn_benchmark": false,
+        "cudnn_deterministic": false,
+        "deterministic_algorithms": false,
+        "deterministic_warn_only": false,
+        "flash_sdp": true,
+        "math_sdp": true,
+        "matmul_precision": "high",
+        "mem_efficient_sdp": true,
+        "python": "3.12.13",
+        "versions": {
+          "lightning": "2.6.1",
+          "numpy": "1.26.4",
+          "pandas": "3.0.2",
+          "scikit-learn": "1.8.0",
+          "timm": "1.0.26",
+          "torch": "2.4.1",
+          "torchvision": "0.19.1",
+          "transformers": "4.45.2"
+        }
+      }
+    }
+  },
+  "extraction_code_sha256": "891e0a4429f3ae818a69517ce3e080fb787e174df8afc69b0f4cad1a91a5f382",
+  "extraction_completed_at": "2026-09-23T22:20:19.512696+00:00",
+  "extraction_source_commit": "e3060373ac8bf512bc53a7c910ff8101bc834a11",
+  "extraction_started_at": "2026-09-23T20:10:33.924530+00:00",
+  "fixed_validation_cells": 49922,
+  "limitations": [
+    "Same-run cross-rank RNG streams correlated; effect unmeasured; no silent reseeding/retraining",
+    "Single-seed exported results cannot establish downstream seed robustness",
+    "Original training did not record all determinism flags; later fields do not recover them",
+    "Matched four-channel frozen bulk exports remain a prerequisite for adaptation-only claims",
+    "Downstream scientific policies/results and manuscript synchronization are separate work",
+    "Hashes bind artifacts, not universal bitwise reproducibility or a read-only filesystem"
+  ],
+  "lock_sha256": "e543d837e4e7f236554e2a4f426489119836b59792a74b97b9369b7f0f09ca1a",
+  "missing_validation_classes": [
+    "MSH2_Leu440Pro"
+  ],
+  "observed_at": "2026-09-23T23:01:50.478545+00:00",
+  "original_contract_sha256": "1ae7ad94fb06b3db2ad0b46aed51bcebf5335561b17f3343beba429a157c67fe",
+  "release_repository": "https://huggingface.co/datasets/anonymous-xyz96/MisLocus",
+  "release_revision": "cf70fbaedf64874907730f8b8db3a62d79149164",
+  "reporting_seed": 42,
+  "review_base_commit": "87c0ec71f676a775e9fad743f3d018d0bf2036b9",
+  "review_method": "Direct source/artifact review; no independent parallel sub-agents available",
+  "rng_checkpoint_audit": {
+    "mae-s42": {
+      "ranks": [
+        {
+          "numpy": "3b955c4737eb0a8bbc883a208abe3d8e72beca32c698ede01cca9ce835ffa76d",
+          "torch_cpu": "1f32f72d67eb61c1284074bf1a8b2433b90b0bf39c2642db426d37b3af1d431d",
+          "torch_cuda": "67bf1dd0d779e2843ca0baf030bf44a15bf3f0b410aefb266426bb13ab9b9197"
+        },
+        {
+          "numpy": "3b955c4737eb0a8bbc883a208abe3d8e72beca32c698ede01cca9ce835ffa76d",
+          "torch_cpu": "1f32f72d67eb61c1284074bf1a8b2433b90b0bf39c2642db426d37b3af1d431d",
+          "torch_cuda": "67bf1dd0d779e2843ca0baf030bf44a15bf3f0b410aefb266426bb13ab9b9197"
+        }
+      ],
+      "within_run_equal": true
+    },
+    "mae-s43": {
+      "ranks": [
+        {
+          "numpy": "93938a89143f43f41803b5cf21560c5aee123505b766c68d2de0a66355f7ee80",
+          "torch_cpu": "145921460d046f432a76c7e4ac8a9925cb4b6d54fd337b939f5969ca24f6dcc8",
+          "torch_cuda": "60a81d4856062c0bfcd7277f7bd11be7f00f3a6a14528c0108d52e3d3febe778"
+        },
+        {
+          "numpy": "93938a89143f43f41803b5cf21560c5aee123505b766c68d2de0a66355f7ee80",
+          "torch_cpu": "145921460d046f432a76c7e4ac8a9925cb4b6d54fd337b939f5969ca24f6dcc8",
+          "torch_cuda": "60a81d4856062c0bfcd7277f7bd11be7f00f3a6a14528c0108d52e3d3febe778"
+        }
+      ],
+      "within_run_equal": true
+    },
+    "mae-s44": {
+      "ranks": [
+        {
+          "numpy": "0433fcafebbf5ee5c02aab2014228859688a1c8eb95426d0e58c94d00403b723",
+          "torch_cpu": "27a8882ba737d815984552127e3fd0a23db23a22a0fa6cafb5169e2f31c2d2d5",
+          "torch_cuda": "6807d65d9f5b51252c841a27d3e9f4b52d6aabe554cfb74ea2b267e6f587b9b0"
+        },
+        {
+          "numpy": "0433fcafebbf5ee5c02aab2014228859688a1c8eb95426d0e58c94d00403b723",
+          "torch_cpu": "27a8882ba737d815984552127e3fd0a23db23a22a0fa6cafb5169e2f31c2d2d5",
+          "torch_cuda": "6807d65d9f5b51252c841a27d3e9f4b52d6aabe554cfb74ea2b267e6f587b9b0"
+        }
+      ],
+      "within_run_equal": true
+    },
+    "vit-s42": {
+      "ranks": [
+        {
+          "numpy": "405dbac5eb707474583c20de44107c77cc3f4e596666b000392f88babf2c2c7f",
+          "torch_cpu": "464b7fd268614e737784d2e4c59101569408fe2a0d98469dc6926f5d1d8605e4",
+          "torch_cuda": "5fd9af5518e4175c0508c597c8575bc89267cb7ee00558ad61020a492b34f3a5"
+        },
+        {
+          "numpy": "405dbac5eb707474583c20de44107c77cc3f4e596666b000392f88babf2c2c7f",
+          "torch_cpu": "464b7fd268614e737784d2e4c59101569408fe2a0d98469dc6926f5d1d8605e4",
+          "torch_cuda": "5fd9af5518e4175c0508c597c8575bc89267cb7ee00558ad61020a492b34f3a5"
+        }
+      ],
+      "within_run_equal": true
+    },
+    "vit-s43": {
+      "ranks": [
+        {
+          "numpy": "b31a66745eb8c547e383bc62709dd8d9dbab27c2add6d09e7e595422d9771ee6",
+          "torch_cpu": "093fa389cd7ed42d7e2485d81adac4d4e17979bd83246c8859268a855e09c1e7",
+          "torch_cuda": "6535a574ba5289d3f806db1827cf80643618b077a1f657d4705469df43dfa5b3"
+        },
+        {
+          "numpy": "b31a66745eb8c547e383bc62709dd8d9dbab27c2add6d09e7e595422d9771ee6",
+          "torch_cpu": "093fa389cd7ed42d7e2485d81adac4d4e17979bd83246c8859268a855e09c1e7",
+          "torch_cuda": "6535a574ba5289d3f806db1827cf80643618b077a1f657d4705469df43dfa5b3"
+        }
+      ],
+      "within_run_equal": true
+    },
+    "vit-s44": {
+      "ranks": [
+        {
+          "numpy": "70ee7d7830c1b797388e315646f7d348a4fc491ad5376de3580bf87c19f6f7f9",
+          "torch_cpu": "d320974717fd13d4390d76541d8fb5a3a0c7f4f546ad0779ca4a3e509e5fa3de",
+          "torch_cuda": "19003f0272f29f48da57d6fc1c13f9c60f4cdfa92d85cb3f145a0b2498fcd43c"
+        },
+        {
+          "numpy": "70ee7d7830c1b797388e315646f7d348a4fc491ad5376de3580bf87c19f6f7f9",
+          "torch_cpu": "d320974717fd13d4390d76541d8fb5a3a0c7f4f546ad0779ca4a3e509e5fa3de",
+          "torch_cuda": "19003f0272f29f48da57d6fc1c13f9c60f4cdfa92d85cb3f145a0b2498fcd43c"
+        }
+      ],
+      "within_run_equal": true
+    }
+  },
+  "run_spec_sha256": "a7c76e16e88736994da909a8c4607639ec7cf05f3388f9b680aeec9e00c69ff5",
+  "runtime_versions_at_extraction": {
+    "lightning": "2.6.1",
+    "numpy": "1.26.4",
+    "pandas": "3.0.2",
+    "polars": "1.39.3",
+    "pyarrow": "23.0.1",
+    "timm": "1.0.26",
+    "torch": "2.4.1",
+    "torchvision": "0.19.1",
+    "transformers": "4.45.2"
+  },
+  "schema_version": 1,
+  "scope": "Six completed fits and two verified seed42 raw exports; no downstream-result claim",
+  "seed_choice": "Explicit user choice before T4 extraction and downstream outcomes",
+  "split_counts": {
+    "test": 800802,
+    "train": 1661362,
+    "val": 870145
+  },
+  "tests": {
+    "clean_producer_tests_passed": 26,
+    "cpu_mae_vit_resume_max_parameter_error": 0.0,
+    "pilot_cells_per_model": 288,
+    "same_source_gpu_repeat_max_abs_error": 0.0
+  },
+  "training_code_sha256": "1d7ca8218d49cce12fa1ee609777c841d35e103e696e64a7e8a193d480c4f175",
+  "training_completed_at": "2026-09-23T15:36:04.475148+00:00",
+  "training_root": "subcell-training/cf70fbaedf64874907730f8b8db3a62d79149164/production-20260923-v2",
+  "training_runs": {
+    "mae-s42": {
+      "last_sha256": "748cde329fd51bfaad29be501fab1db8d54dce5823d45865f9947a683e90eafd",
+      "macro_ap": 0.10971675464386649,
+      "max_logged_lr_error": 1.8178502662045438e-12,
+      "pass_wall_hours": 3.9038156637285524,
+      "passes": 100,
+      "selected_pass": 100,
+      "selected_sha256": "748cde329fd51bfaad29be501fab1db8d54dce5823d45865f9947a683e90eafd",
+      "stopping_reason": "100-pass limit",
+      "updates": 9700
+    },
+    "mae-s43": {
+      "last_sha256": "1bee6767cf56dbf883f065b3a16326a23d74056662bceaecdddb440fef0a292a",
+      "macro_ap": 0.11047012615038677,
+      "max_logged_lr_error": 1.8178502662045438e-12,
+      "pass_wall_hours": 3.8934141474646617,
+      "passes": 100,
+      "selected_pass": 100,
+      "selected_sha256": "1bee6767cf56dbf883f065b3a16326a23d74056662bceaecdddb440fef0a292a",
+      "stopping_reason": "100-pass limit",
+      "updates": 9700
+    },
+    "mae-s44": {
+      "last_sha256": "2905fcc7c9744913fd67c8d361e23f1f80fa21e54cd6183b15ceab37633d213e",
+      "macro_ap": 0.11093676243440515,
+      "max_logged_lr_error": 1.8178502662045438e-12,
+      "pass_wall_hours": 3.8789196138627204,
+      "passes": 100,
+      "selected_pass": 100,
+      "selected_sha256": "2905fcc7c9744913fd67c8d361e23f1f80fa21e54cd6183b15ceab37633d213e",
+      "stopping_reason": "100-pass limit",
+      "updates": 9700
+    },
+    "vit-s42": {
+      "last_sha256": "8733e38a4d23a7c21d5ad20492614747554aaba8adbec817c47d3b10acb258ce",
+      "macro_ap": 0.11544648890729702,
+      "max_logged_lr_error": 1.8178502662045438e-12,
+      "pass_wall_hours": 3.683105804287673,
+      "passes": 100,
+      "selected_pass": 100,
+      "selected_sha256": "8733e38a4d23a7c21d5ad20492614747554aaba8adbec817c47d3b10acb258ce",
+      "stopping_reason": "100-pass limit",
+      "updates": 9700
+    },
+    "vit-s43": {
+      "last_sha256": "f041fd4385982120b88bdf3dd61f946305d252132b52e2790f1d63df46c1003d",
+      "macro_ap": 0.11431145377782005,
+      "max_logged_lr_error": 1.8178502662045438e-12,
+      "pass_wall_hours": 3.6744896138596554,
+      "passes": 100,
+      "selected_pass": 100,
+      "selected_sha256": "f041fd4385982120b88bdf3dd61f946305d252132b52e2790f1d63df46c1003d",
+      "stopping_reason": "100-pass limit",
+      "updates": 9700
+    },
+    "vit-s44": {
+      "last_sha256": "96d5728e8f3458b046caa1da367d22286be5069941ae6f6d2c271cdf43f6059e",
+      "macro_ap": 0.11431371260698849,
+      "max_logged_lr_error": 1.8178502662045438e-12,
+      "pass_wall_hours": 3.6824605830062906,
+      "passes": 100,
+      "selected_pass": 100,
+      "selected_sha256": "96d5728e8f3458b046caa1da367d22286be5069941ae6f6d2c271cdf43f6059e",
+      "stopping_reason": "100-pass limit",
+      "updates": 9700
+    }
+  },
+  "training_source_commit": "03b19615508ebfbec767bf67d4d784ee1c7ad9c1"
+}
