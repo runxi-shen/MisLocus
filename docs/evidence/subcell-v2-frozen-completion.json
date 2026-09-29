@@ -1,0 +1,379 @@
+{
+  "adapted_export_source_commit": "e3060373ac8bf512bc53a7c910ff8101bc834a11",
+  "batch_split_counts": {
+    "2024_01_23_Batch_7": {
+      "test": 218905,
+      "train": 404871,
+      "val": 230492
+    },
+    "2024_02_06_Batch_8": {
+      "test": 72584,
+      "train": 130211,
+      "val": 71140
+    },
+    "2025_01_27_Batch_13": {
+      "test": 170251,
+      "train": 374269,
+      "val": 179562
+    },
+    "2025_01_28_Batch_14": {
+      "test": 156736,
+      "train": 339817,
+      "val": 187004
+    },
+    "2025_03_17_Batch_15": {
+      "test": 84994,
+      "train": 190615,
+      "val": 93192
+    },
+    "2025_03_17_Batch_16": {
+      "test": 97332,
+      "train": 221579,
+      "val": 108755
+    }
+  },
+  "checksum_files": {
+    "subcell-v2-frozen-payloads.sha256": "217d920ecb06e8aa13f4f33330117e0706685f1cab8be2fa22148638b7767965",
+    "subcell-v2-frozen-receipts.sha256": "4b15c6940efb8899c411b7c01eaf6963e0dd10600ca995aa23bc9e87fb3c1239",
+    "subcell-v2-frozen-weights.sha256": "cba9db462eecb233d4831f9e53bedc0f26067b88704ec9746fa83b4b42941a4c"
+  },
+  "checksum_scope": {
+    "payloads": 12,
+    "pretrained_weights": 2,
+    "pretrained_weights_root": "WEIGHTS_ROOT (rybg)",
+    "receipts": 121,
+    "receipts_payloads_root": "ARTIFACT_ROOT"
+  },
+  "ci": {
+    "published": false,
+    "reason": "OAuth credential lacks workflow scope; no passing CI checks claimed"
+  },
+  "completed_at": "2026-09-24T02:25:01.369054+00:00",
+  "control_root": "subcell-training/cf70fbaedf64874907730f8b8db3a62d79149164/jobs/extraction-frozen-all-20260924-v1",
+  "export_root": "mislocus-derived/cf70fbaedf64874907730f8b8db3a62d79149164/exports/subcell-frozen-all-20260924-v1",
+  "exports": {
+    "mae": {
+      "adapted_receipt_sha256": "050bff3cc61b7fa68986058df9585f17d80191d71484bf08b2b24f9668992495",
+      "all_features_finite": true,
+      "cells": 3332309,
+      "cgroup_memory_peak_bytes": 51541704704,
+      "constant_cells": 0,
+      "dtype": "float32",
+      "duration_seconds_before_final_provenance_writes": 7433.445598945022,
+      "features": 1536,
+      "frozen_weights_sha256": "493ff6d17e108e89b805f79a17cf09c2f237458637ed847e3ae7d187295f387d",
+      "matched_metadata": true,
+      "memory_events": {
+        "high": 11274,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0
+      },
+      "outputs": {
+        "2024_01_23_Batch_7": {
+          "cells": 854268,
+          "ordered_cell_ids_sha256": "a6ef7034edbe9e5bf8040c561bb372458f7f59ff9e32aa95cfbcbea99afef09a",
+          "sha256": "a48426e3cee5f6091b7bd6e91179729f86cb9e3528b59d8c4a1d228b121b5540",
+          "split_counts": {
+            "test": 218905,
+            "train": 404871,
+            "val": 230492
+          }
+        },
+        "2024_02_06_Batch_8": {
+          "cells": 273935,
+          "ordered_cell_ids_sha256": "433adf3caec0f9588bfea394d0b3264972327df05e904b2c8eb44c87bfe614d3",
+          "sha256": "11ca3f9498cd2e118e473f41f94d1a408575a95a43bfe8ffe96310f3c0e55750",
+          "split_counts": {
+            "test": 72584,
+            "train": 130211,
+            "val": 71140
+          }
+        },
+        "2025_01_27_Batch_13": {
+          "cells": 724082,
+          "ordered_cell_ids_sha256": "a2d3b850537a303e33229018f05878796e68059c348c559221457ce4e74f78fa",
+          "sha256": "81b0d157650cdd5781df77ad2f91d1498ba89887f60c8b1c4ed42d2e14e19b4e",
+          "split_counts": {
+            "test": 170251,
+            "train": 374269,
+            "val": 179562
+          }
+        },
+        "2025_01_28_Batch_14": {
+          "cells": 683557,
+          "ordered_cell_ids_sha256": "f352cbdf92cc3405a55d1946a6896552d50a30cc304ab8a66ea5bc320782e1c7",
+          "sha256": "2fadc514890a37c726e74a253ce8803ae1dfd67d62523a19d57acfb3db140622",
+          "split_counts": {
+            "test": 156736,
+            "train": 339817,
+            "val": 187004
+          }
+        },
+        "2025_03_17_Batch_15": {
+          "cells": 368801,
+          "ordered_cell_ids_sha256": "cfb6509d75dfeb148a745bd836a42ceacf0114493cf6042b99b87dda148aac65",
+          "sha256": "ae17acc0c3afaf4eb58fa123109af3ea6941a40d758ad4c9f5cc86ffd9995cc5",
+          "split_counts": {
+            "test": 84994,
+            "train": 190615,
+            "val": 93192
+          }
+        },
+        "2025_03_17_Batch_16": {
+          "cells": 427666,
+          "ordered_cell_ids_sha256": "202a67183dda09756b89d6752a3f2422e5581f71999486d67d2b2550b321739d",
+          "sha256": "3cce03c0ed95f451a96e680e8bba7773156d9c7135826db7ec373db9bf649965",
+          "split_counts": {
+            "test": 97332,
+            "train": 221579,
+            "val": 108755
+          }
+        }
+      },
+      "pilot_cells": 288,
+      "pilot_repeat_max_abs_error": 0.0,
+      "preprocessing": "AGP,Mito,DNA,GFP;128->955->[253:701];joint-minmax-1e-6",
+      "receipt_sha256": "84af3fa927b8f823272d823396cbfa70de1aa7b79e8538489b0a38e5ff72a993",
+      "representation": "subcell_frozen_rybg_v2_mae",
+      "runtime": {
+        "cublas_workspace_config": null,
+        "cuda": "12.4",
+        "cuda_matmul_allow_tf32": true,
+        "cudnn": 90100,
+        "cudnn_allow_tf32": true,
+        "cudnn_benchmark": false,
+        "cudnn_deterministic": false,
+        "deterministic_algorithms": false,
+        "deterministic_warn_only": false,
+        "flash_sdp": true,
+        "math_sdp": true,
+        "matmul_precision": "high",
+        "mem_efficient_sdp": true,
+        "python": "3.12.13",
+        "versions": {
+          "lightning": "2.6.1",
+          "numpy": "1.26.4",
+          "pandas": "3.0.2",
+          "scikit-learn": "1.8.0",
+          "timm": "1.0.26",
+          "torch": "2.4.1",
+          "torchvision": "0.19.1",
+          "transformers": "4.45.2"
+        }
+      }
+    },
+    "vit": {
+      "adapted_receipt_sha256": "84e9ed76e72416e7618c0d1f88ec06fcf28cc64b914f7b7de8ea8214c2e7aa64",
+      "all_features_finite": true,
+      "cells": 3332309,
+      "cgroup_memory_peak_bytes": 51541704704,
+      "constant_cells": 0,
+      "dtype": "float32",
+      "duration_seconds_before_final_provenance_writes": 7423.098379686475,
+      "features": 1536,
+      "frozen_weights_sha256": "6a2d117bcacaa0697034d06d6922580ca7cd996564f270529ec97e6502559845",
+      "matched_metadata": true,
+      "memory_events": {
+        "high": 6097,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0
+      },
+      "outputs": {
+        "2024_01_23_Batch_7": {
+          "cells": 854268,
+          "ordered_cell_ids_sha256": "a6ef7034edbe9e5bf8040c561bb372458f7f59ff9e32aa95cfbcbea99afef09a",
+          "sha256": "18142c92bc876c15dde29096da84606f5f2c25dcbebaea3807f4694aadbe41b2",
+          "split_counts": {
+            "test": 218905,
+            "train": 404871,
+            "val": 230492
+          }
+        },
+        "2024_02_06_Batch_8": {
+          "cells": 273935,
+          "ordered_cell_ids_sha256": "433adf3caec0f9588bfea394d0b3264972327df05e904b2c8eb44c87bfe614d3",
+          "sha256": "29645e349344889bb4231c60f46edb41a7a544f88cdef0315ce5636a3ae8e9e8",
+          "split_counts": {
+            "test": 72584,
+            "train": 130211,
+            "val": 71140
+          }
+        },
+        "2025_01_27_Batch_13": {
+          "cells": 724082,
+          "ordered_cell_ids_sha256": "a2d3b850537a303e33229018f05878796e68059c348c559221457ce4e74f78fa",
+          "sha256": "ea2c1aafc55e477236f660342728ad7cfeba5771c8aefb86a0e493581f8c5723",
+          "split_counts": {
+            "test": 170251,
+            "train": 374269,
+            "val": 179562
+          }
+        },
+        "2025_01_28_Batch_14": {
+          "cells": 683557,
+          "ordered_cell_ids_sha256": "f352cbdf92cc3405a55d1946a6896552d50a30cc304ab8a66ea5bc320782e1c7",
+          "sha256": "0b81f41ee54a0b2d822baad93b07f80089231161e146cf6f1c757e41dc2dfaf0",
+          "split_counts": {
+            "test": 156736,
+            "train": 339817,
+            "val": 187004
+          }
+        },
+        "2025_03_17_Batch_15": {
+          "cells": 368801,
+          "ordered_cell_ids_sha256": "cfb6509d75dfeb148a745bd836a42ceacf0114493cf6042b99b87dda148aac65",
+          "sha256": "8d362ca96c65c5f6090f955fd8b83d00733fd8ce8ef428cb98d547a041ad2f4e",
+          "split_counts": {
+            "test": 84994,
+            "train": 190615,
+            "val": 93192
+          }
+        },
+        "2025_03_17_Batch_16": {
+          "cells": 427666,
+          "ordered_cell_ids_sha256": "202a67183dda09756b89d6752a3f2422e5581f71999486d67d2b2550b321739d",
+          "sha256": "982bff5cacefb64b884b3dc1f04c7a1c508b140a5f32f368e32304bba20d4fc9",
+          "split_counts": {
+            "test": 97332,
+            "train": 221579,
+            "val": 108755
+          }
+        }
+      },
+      "pilot_cells": 288,
+      "pilot_repeat_max_abs_error": 0.0,
+      "preprocessing": "AGP,Mito,DNA,GFP;128->955->[253:701];joint-minmax-1e-6",
+      "receipt_sha256": "941657b4e3fe9f0287bbcf7df8ffbe76deb50bafd49a48c572661f78ea20ceb9",
+      "representation": "subcell_frozen_rybg_v2_vit",
+      "runtime": {
+        "cublas_workspace_config": null,
+        "cuda": "12.4",
+        "cuda_matmul_allow_tf32": true,
+        "cudnn": 90100,
+        "cudnn_allow_tf32": true,
+        "cudnn_benchmark": false,
+        "cudnn_deterministic": false,
+        "deterministic_algorithms": false,
+        "deterministic_warn_only": false,
+        "flash_sdp": true,
+        "math_sdp": true,
+        "matmul_precision": "high",
+        "mem_efficient_sdp": true,
+        "python": "3.12.13",
+        "versions": {
+          "lightning": "2.6.1",
+          "numpy": "1.26.4",
+          "pandas": "3.0.2",
+          "scikit-learn": "1.8.0",
+          "timm": "1.0.26",
+          "torch": "2.4.1",
+          "torchvision": "0.19.1",
+          "transformers": "4.45.2"
+        }
+      }
+    }
+  },
+  "frozen_export_code_sha256": "1f2a7f171219b773f33c4d58983063b1db3d021bcfa7336e21a0724c2a90b64e",
+  "frozen_export_source_commit": "d0c61f03eab6f153de2360406e7f0b81a9b59285",
+  "lock_sha256": "e543d837e4e7f236554e2a4f426489119836b59792a74b97b9369b7f0f09ca1a",
+  "matched_inference_implementation": {
+    "checked_paths": [
+      "src/prot_loc_benchmark/config.py",
+      "src/prot_loc_benchmark/preprocessing/subcell.py",
+      "src/prot_loc_benchmark/representations/subcell_extract.py",
+      "src/prot_loc_benchmark/representations/subcell_protocol.py",
+      "src/prot_loc_benchmark/representations/subcell_finetune.py",
+      "src/prot_loc_benchmark/representations/subcell_training.py",
+      "src/prot_loc_benchmark/representations/subcell_manifest.py",
+      "vendor/subcell_embed/models",
+      "vendor/subcell_embed/utils"
+    ],
+    "unchanged_from_adapted_export": true
+  },
+  "observed_at": "2026-09-24T02:33:14.928211+00:00",
+  "original_contract_sha256": "1ae7ad94fb06b3db2ad0b46aed51bcebf5335561b17f3343beba429a157c67fe",
+  "original_training_reaudit": {
+    "receipt_sha256": "f8ff84bbe5938c53c6df9b3d77810f6da4dde661d6552230cd569390e0687071",
+    "six_runs_unchanged_and_terminal": true,
+    "training_source_sha256": "1d7ca8218d49cce12fa1ee609777c841d35e103e696e64a7e8a193d480c4f175",
+    "verification_source_sha256": "1f2a7f171219b773f33c4d58983063b1db3d021bcfa7336e21a0724c2a90b64e"
+  },
+  "original_training_source_commit": "03b19615508ebfbec767bf67d4d784ee1c7ad9c1",
+  "parity": [
+    {
+      "dtype": "float32",
+      "family": "mae",
+      "max_absolute_portable_difference": 7.49826431274414e-05,
+      "pretrained_sha256": "493ff6d17e108e89b805f79a17cf09c2f237458637ed847e3ae7d187295f387d",
+      "repeat_difference": 0.0,
+      "shape": [
+        36,
+        1536
+      ]
+    },
+    {
+      "dtype": "float32",
+      "family": "vit",
+      "max_absolute_portable_difference": 1.0341405868530273e-05,
+      "pretrained_sha256": "6a2d117bcacaa0697034d06d6922580ca7cd996564f270529ec97e6502559845",
+      "repeat_difference": 0.0,
+      "shape": [
+        36,
+        1536
+      ]
+    }
+  ],
+  "post_export_crop_rehash": {
+    "bytes_verified": 436847345580,
+    "extraction_sha256": "1422f5491d3f650dcd8d864210f02debcd94dbaf1929f230b7fb7b81f91eea31",
+    "files_verified": 17060,
+    "revision": "cf70fbaedf64874907730f8b8db3a62d79149164",
+    "verified_at": "2026-09-24T02:32:22.299346+00:00"
+  },
+  "producer_crop_integrity_scope": "Reuse original full-payload rehash; current preflight verifies unchanged receipt, all sizes and mtimes. No new crop-payload rehash claimed.",
+  "retained_limits": [
+    "Same-run training rank RNG correlation remains; performance effect unmeasured",
+    "Historical training determinism flags are not reconstructed",
+    "Adapted downstream reporting remains seed42 only",
+    "Matched downstream normalization, feature selection, calibration and retrieval policies remain separate gates",
+    "No public model/embedding upload, downstream result or universal bitwise reproducibility is claimed",
+    "Post-export crop rehash is point-in-time integrity, not a read-only filesystem"
+  ],
+  "review_base_commit": "87c0ec71f676a775e9fad743f3d018d0bf2036b9",
+  "review_method": "Fresh separately scoped direct Standards/Spec review; no independent subagents available",
+  "run_spec_sha256": "0b2b56c65d53bfdf336491118860c006b8b01ec45fee0386e8eb3666d7b69cf0",
+  "schema_version": 1,
+  "scope": "Two completed matched frozen four-channel raw exports; closes the raw-control export gap, not downstream scientific gates",
+  "source_archive_sha256": "c3271bd91489205066dcba5f8846ac0613ad39b0470f2829c16020d46d1ab120",
+  "split_counts": {
+    "test": 800802,
+    "train": 1661362,
+    "val": 870145
+  },
+  "started_at": "2026-09-24T00:14:22.477212+00:00",
+  "tests": {
+    "clean_cpu_tests_passed": 27,
+    "lock_check_passed": true,
+    "mae_cpu_resume_max_parameter_error": 0.0,
+    "plateau_regression_failed_before_fix": true,
+    "plateau_resume_exact_and_terminal_interruption_rejected": true,
+    "vit_cpu_resume_max_parameter_error": 0.0
+  },
+  "versions": {
+    "lightning": "2.6.1",
+    "numpy": "1.26.4",
+    "pandas": "3.0.2",
+    "polars": "1.39.3",
+    "pyarrow": "23.0.1",
+    "timm": "1.0.26",
+    "torch": "2.4.1",
+    "torchvision": "0.19.1",
+    "transformers": "4.45.2"
+  }
+}
