@@ -5,7 +5,6 @@ receipt binds the crop files to one immutable Hugging Face git revision.
 """
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -14,7 +13,7 @@ import pandas as pd
 
 from prot_loc_benchmark.config import ALL_PUBLIC_BATCHES, SUBCELL_CHANNEL_FILES
 from prot_loc_benchmark.cell_crops import release_inventory as crop_inventory
-from prot_loc_benchmark.provenance import save_json, sha256
+from prot_loc_benchmark.provenance import sha256
 
 PROTOCOL = 'subcell-allele-rybg-v2'
 IDENTITY = ['Metadata_CellID', 'Metadata_Plate', 'Metadata_Well',
@@ -85,9 +84,14 @@ def add_plate_maps(frame, root, inventory):
             raise ValueError(f'Ambiguous physical plate to platemap mapping: {path}')
         mapping['batch_id'] = batch
         tables.append(mapping)
-    result = frame.merge(pd.concat(tables), on=['batch_id', 'Metadata_Plate'], how='left', validate='many_to_one')
+    result = frame.merge(pd.concat(tables), on=['batch_id', 'Metadata_Plate'], how='left',
+                         validate='many_to_one', suffixes=('_existing', ''))
     if len(result) != len(frame) or result.Metadata_plate_map_name.isna().any():
         raise ValueError('Missing canonical plate-map annotation; refusing to drop cells')
+    if 'Metadata_plate_map_name_existing' in result:
+        existing = result.pop('Metadata_plate_map_name_existing')
+        if (existing.notna() & existing.ne(result.Metadata_plate_map_name)).any():
+            raise ValueError('Conflicting canonical plate-map annotation')
     return result
 
 
