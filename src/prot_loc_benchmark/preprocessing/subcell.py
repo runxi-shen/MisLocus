@@ -1,7 +1,7 @@
 """SubCell-specific preprocessing utilities (rescale → crop → normalize).
 
 Used by:
-  - scripts/08a_extract_subcell_embeddings.py (frozen inference)
+  - scripts/08b_extract_subcell_embeddings.py (frozen inference)
   - scripts/08d_extract_subcell_finetune_embeddings.py (fine-tuned inference)
   - src/prot_loc_benchmark/representations/subcell_finetune.py (training dataset)
 """
