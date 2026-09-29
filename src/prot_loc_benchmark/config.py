@@ -304,7 +304,7 @@ SUBCELL_SCALE_FACTOR = SUBCELL_PIXEL_SIZE_MISLOCUS / SUBCELL_PIXEL_SIZE_HPA  # ~
 # Input/output sizes for HPA-scale preprocessing
 SUBCELL_INPUT_CROP_SIZE = 128
 SUBCELL_INFERENCE_CROP = 448
-SUBCELL_RESCALED_SIZE = int(SUBCELL_INPUT_CROP_SIZE * SUBCELL_SCALE_FACTOR)  # 953
+SUBCELL_RESCALED_SIZE = int(SUBCELL_INPUT_CROP_SIZE * SUBCELL_SCALE_FACTOR)  # 955
 
 # Embedding dimension (2 attention pooling heads × 768 hidden size)
 SUBCELL_EMBED_DIM = 1536
@@ -336,6 +336,14 @@ for _ch in SUBCELL_CHANNEL_CONFIGS:
 # Register fine-tuned SubCell variants (08c/08d)
 for _ft in ["mae", "vit"]:
     _register_subcell_rep(f"subcell_finetuned_{_ft}")
+
+# v2 comparisons always use the same downstream preprocessing, never raw vs processed.
+for _ft in ["mae", "vit"]:
+    for _rep in [f"subcell_frozen_rybg_v2_{_ft}", *[
+        f"subcell_allele_rybg_v2_{_ft}_s{seed}" for seed in (42, 43, 44)
+    ]]:
+        _PREPROCESSED_SUBCELL_REPS.add(_rep)
+        _register_subcell_rep(_rep)
 
 
 # ============================================================================
