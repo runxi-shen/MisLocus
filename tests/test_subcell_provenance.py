@@ -205,6 +205,42 @@ class ProvenanceChecks(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'authoritative'):
                 verify_selection(path, checkpoint)
 
+    def test_terminal_production_resume_and_backend_metadata(self):
+        from test_subcell_allele_v2 import tiny_components
+        from prot_loc_benchmark.representations.subcell_training import SubCellAlleleModule
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            identity = {'kind': 'production'}
+            checkpoint = {'global_step': 970, 'allele_v2': {'identity': identity, 'next_pass': 10,
+                          'steps_per_pass': 97, 'rng_states': []}, 'callbacks': {}}
+            module = SubCellAlleleModule(tiny_components('vit'), ['a', 'b'], identity, root, augment=False)
+            module.on_load_checkpoint(checkpoint)  # An interrupted nonterminal pass can resume.
+            marker = root / 'attempts/first/completed.json'
+            marker.parent.mkdir(parents=True)
+            marker.write_text('completed sentinel')
+            with self.assertRaisesRegex(ValueError, 'already completed'):
+                module.on_load_checkpoint(checkpoint)
+            self.assertEqual(marker.read_text(), 'completed sentinel')
+            marker.unlink()
+            checkpoint['allele_v2']['next_pass'] = 100
+            checkpoint['global_step'] = 9700
+            with self.assertRaisesRegex(ValueError, '100-pass horizon'):
+                module.on_load_checkpoint(checkpoint)
+            checkpoint['allele_v2']['next_pass'] = 60
+            checkpoint['global_step'] = 5820
+            stopping = EarlyStopping('val/macro_ap', patience=5, mode='max')
+            for stopped_epoch, wait_count in ((59, 1), (0, 5)):
+                state = {**stopping.state_dict(), 'stopped_epoch': stopped_epoch, 'wait_count': wait_count}
+                checkpoint['callbacks'] = {stopping.state_key: state}
+                with self.assertRaisesRegex(ValueError, 'already early-stopped'):
+                    module.on_load_checkpoint(checkpoint)
+            checkpoint['allele_v2']['identity'] = {'kind': 'release_validation'}
+            require_resumable(root, checkpoint)  # Diagnostic stop/resume gates remain possible.
+        runtime = runtime_info()
+        self.assertEqual(runtime['cudnn_deterministic'], torch.backends.cudnn.deterministic)
+        self.assertEqual(runtime['deterministic_algorithms'], torch.are_deterministic_algorithms_enabled())
+        self.assertEqual(runtime['deterministic_warn_only'], torch.is_deterministic_algorithms_warn_only_enabled())
+        self.assertEqual(runtime['cublas_workspace_config'], os.environ.get('CUBLAS_WORKSPACE_CONFIG'))
 
     def test_native_selector_ties_small_improvements_and_early_stopping(self):
         with tempfile.TemporaryDirectory() as directory:
