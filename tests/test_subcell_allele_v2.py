@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+import yaml
 from torch.utils.data import DataLoader, Subset
 
 from models.get_models import get_model_dict
@@ -18,7 +19,7 @@ from prot_loc_benchmark.representations.subcell_allele_data import (
     AlleleBatchSampler, MisLocusSubCellDataset, collate_cells, fixed_validation, stratified_draw,
 )
 from prot_loc_benchmark.representations.subcell_manifest import add_plate_maps, align_crop_rows, sha256, split_for_plate
-from prot_loc_benchmark.representations.subcell_protocol import model_config
+from prot_loc_benchmark.representations.subcell_protocol import model_config, validate_config
 from prot_loc_benchmark.representations.subcell_training import (
     SubCellAlleleModule, allele_metrics, load_pretrained_weights, lr_factor, optimizer_groups, setup_transforms,
 )
@@ -318,6 +319,16 @@ class AlleleRegression(unittest.TestCase):
         model.on_validation_epoch_end()
         self.assertIsInstance(logged['val/macro_ap'], torch.Tensor)
         self.assertEqual(logged['val/macro_ap'].dtype, torch.float64)
+
+    def test_every_shipped_config_is_v2(self):
+        for path in Path('configs').glob('subcell_finetune*.yaml'):
+            config = yaml.safe_load(path.read_text())
+            validate_config(config)
+            if '_s' in path.stem:
+                self.assertTrue(path.stem.endswith(f'_s{config["seed"]}'))
+            config['mask_prob'] = .5
+            with self.assertRaises(ValueError):
+                validate_config(config)
 
 
 if __name__ == '__main__':

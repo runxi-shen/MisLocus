@@ -1,95 +1,14 @@
-# SubCell ViT-ProtS-Pool fine-tuning on MisLocus
-#
-# Model: BaseSSL (Protein-supervised contrastive only, no reconstruction)
-# Init: rybg/vit_supcon_model/encoder.pth (HPA pretrained)
-# Data: B13-B16 crops, HPA-scale preprocessing (7.47× → crop 448)
-# Split: T1+T2=train, T3=val, T4=test (mandatory protocol)
-
-exp_folder: "data/interim/subcell_finetune"
-exp_name: "models"
-exp_mode: "vit"
-log_wandb: false
-num_workers: 2
-pin_memory: true
-
-data:
-  dataset: "MisLocusSubCellDataset"
-  manifest_csv: "data/interim/cytoself/manifests/manifest_b7b8b13b16_siteqc.csv"
-  image_size: 448
-  args:
-    ssl_transform: true
-    protein_path: null
-    n_cells: 8
-    mask_prob: 0.0
-    color_channels:
-      - "red"
-      - "yellow"
-      - "blue"
-      - "green"
-    normalize: "min_max"
-    return_cell_mask: false
-
-model:
-  vit_model:
-    name: "ViTModel"
-    args:
-      hidden_size: 768
-      num_hidden_layers: 12
-      num_attention_heads: 12
-      intermediate_size: 3072
-      hidden_act: "gelu"
-      hidden_dropout_prob: 0.0
-      attention_probs_dropout_prob: 0.0
-      initializer_range: 0.02
-      layer_norm_eps: 1.e-12
-      image_size: 448
-      patch_size: 16
-      num_channels: 4
-      qkv_bias: true
-  supcon_model:
-    name: ContrastiveLoss
-    args:
-      projector:
-        name: "ProjectionHead"
-        args:
-          in_channels: 1536
-          mlp_layers:
-            - 8192
-            - 8192
-            - 512
-      temperature: 0.1
-  pool_model:
-    name: "GatedAttentionPooler"
-    args:
-      dim: 768
-      int_dim: 512
-      num_heads: 2
-      dropout: 0.2
-  pl_args:
-    weight_ssl: 1.0
-    weight_supcon: 1.0
-    max_epochs: 100
-    init_lr: 5.e-5
-    weight_decay: 0.01
-    betas:
-      - 0.9
-      - 0.95
-    warmup_epochs: 5
-
-train:
-  pl_module: "BaseSSL"
-  train_batch_size: 16
-  test_batch_size: 16
-  pretrained_weights: "data/interim/subcell_portable/weights/rybg/vit_supcon_model/encoder.pth"
-
-trainer:
-  gc_interval: 50
-  valid_every: 10
-  strategy: "auto"
-  logging_interval: 50
-  checkpoint_interval: 50
-  precision: "32-true"
-
-test:
-  tester: "MAETester"
-  model_path: "best_model_ap.ckpt"
+# Scientific settings are fixed in subcell_protocol.py and saved in run.json.
+protocol: subcell-allele-rybg-v2
+family: vit
+seed: 42
+sampling_seed: 42
+preflight: data/interim/subcell_allele_rybg_v2/cohort
+pretrained_weights: data/interim/subcell_portable/weights/rybg/vit_supcon_model/encoder.pth
+pretrained_sha256: 6a2d117bcacaa0697034d06d6922580ca7cd996564f270529ec97e6502559845
+output: data/interim/subcell_allele_rybg_v2/vit_s42
+workers: 2
+devices: 2
+mask_prob: 0
+return_cell_mask: false
+object_mask_ratio: 0
