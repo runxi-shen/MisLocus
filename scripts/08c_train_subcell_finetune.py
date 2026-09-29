@@ -505,4 +505,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Transitional dispatch: keep legacy recipes usable until both families migrate.
+    route = argparse.ArgumentParser(add_help=False)
+    route.add_argument('-c', '--config')
+    known, _ = route.parse_known_args()
+    if (known.config and not {'-h', '--help'}.intersection(sys.argv[1:])
+            and yaml.safe_load(Path(known.config).read_text()).get('protocol') == 'subcell-allele-rybg-v2'):
+        import runpy
+        runpy.run_path(str(REPO_ROOT / 'scripts/08c_train_subcell_allele_v2.py'), run_name='__main__')
+    else:
+        main()

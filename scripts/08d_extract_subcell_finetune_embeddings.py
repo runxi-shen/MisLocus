@@ -57,8 +57,8 @@ def load_finetuned_model(model_type: str, device: torch.device, seed: int | None
     wraps them in an inference container matching SubCellPortable's interface.
 
     When ``seed`` is provided, loads the seed-suffixed variant
-    (e.g. ``subcell_finetune_{model_type}_s{seed}.yaml`` and
-    ``models/{model_type}_s{seed}/``); otherwise loads the base variant.
+    (``models/{model_type}_s{seed}/``); otherwise loads the base variant.
+    Always use that historical run's archived config, not a mutable recipe.
     """
     from omegaconf import OmegaConf
 
@@ -77,7 +77,7 @@ def load_finetuned_model(model_type: str, device: torch.device, seed: int | None
             f"with -c configs/subcell_finetune_{model_subdir}.yaml first."
         )
 
-    config_path = REPO_ROOT / "configs" / f"subcell_finetune_{model_subdir}.yaml"
+    config_path = model_dir / "config.yaml"
     config = OmegaConf.to_container(OmegaConf.load(config_path))
 
     # Load checkpoint to get hyperparameters (num_classes from training)
