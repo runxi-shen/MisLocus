@@ -1,6 +1,4 @@
 """Run: PYTHONPATH=src:vendor/subcell_embed python -m unittest discover -s tests."""
-import copy
-import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,18 +6,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-import yaml
 from torch.utils.data import DataLoader
 
-from models.get_models import get_model_dict
 from models.ntxent import get_contrastive_loss
-from prot_loc_benchmark.config import SUBCELL_CHANNEL_FILES, SUBCELL_SCALE_FACTOR
-from prot_loc_benchmark.preprocessing.subcell import SubCellPreprocessor
+from prot_loc_benchmark.config import ALL_PUBLIC_BATCHES, SUBCELL_CHANNEL_FILES
 from prot_loc_benchmark.representations.subcell_allele_data import (
     AlleleBatchSampler, MisLocusSubCellDataset, collate_cells, fixed_validation, stratified_draw,
 )
-from prot_loc_benchmark.representations.subcell_manifest import align_crop_rows, sha256, split_for_plate
-from prot_loc_benchmark.representations.subcell_protocol import model_config, validate_config
+from prot_loc_benchmark.representations.subcell_manifest import add_plate_maps, align_crop_rows, sha256, split_for_plate
 
 
 def make_cohort(root, count=17):
@@ -45,20 +39,6 @@ def make_cohort(root, count=17):
             image[:] = np.arange(12, dtype=np.uint16)[:, None, None] + c * 100
             np.save(base / channel, image)
     return pd.DataFrame(rows), classes
-
-
-def tiny_components(family):
-    config = copy.deepcopy(model_config(family))
-    backbone = config['mae_model' if family == 'mae' else 'vit_model']['args']
-    backbone.update(hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32, image_size=32)
-    if family == 'mae':
-        backbone.update(decoder_hidden_size=16, decoder_num_hidden_layers=1,
-                        decoder_num_attention_heads=2, decoder_intermediate_size=32)
-    config['pool_model']['args'].update(dim=16, int_dim=8)
-    for name in ('ssl_model', 'supcon_model'):
-        if name in config:
-            config[name]['args']['projector']['args'].update(in_channels=32, mlp_layers=[32, 32, 8])
-    return get_model_dict(config)
 
 
 class AlleleRegression(unittest.TestCase):
@@ -99,6 +79,41 @@ class AlleleRegression(unittest.TestCase):
         wrong['Metadata_gene_allele'] = 'ALK_Thr1151Met'
         with self.assertRaisesRegex(ValueError, 'allele'):
             align_crop_rows(wrong, self.root / 'ALK')
+
+    def test_plate_map_annotations_are_reconciled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inventory, rows = {'files': {}}, []
+            for batch in ALL_PUBLIC_BATCHES:
+                plate = f'{batch}_P1T1'
+                relative = f'representations/cellprofiler/{batch}/features.parquet'
+                path = root / relative
+                path.parent.mkdir(parents=True)
+                pd.DataFrame({'Metadata_Plate': [plate], 'Metadata_plate_map_name': ['P1']}).to_parquet(path)
+                inventory['files'][relative] = {'sha256': sha256(path)}
+                rows.extend({'batch_id': batch, 'Metadata_Plate': plate, 'cell_id': f'{batch}/{i}'}
+                            for i in range(2))
+            frame = pd.DataFrame(rows)
+            expected = frame.assign(Metadata_plate_map_name='P1')
+            for values in (None, ['P1'] * len(frame), [pd.NA] + ['P1'] * (len(frame) - 1)):
+                with self.subTest(values=values):
+                    supplied = frame.copy() if values is None else frame.assign(Metadata_plate_map_name=values)
+                    original = supplied.copy(deep=True)
+                    result = add_plate_maps(supplied, root, inventory)
+                    pd.testing.assert_frame_equal(result, expected)
+                    pd.testing.assert_frame_equal(supplied, original)
+            conflicting = expected.copy()
+            conflicting.loc[0, 'Metadata_plate_map_name'] = 'P2'
+            with self.assertRaisesRegex(ValueError, 'Conflicting.*plate-map'):
+                add_plate_maps(conflicting, root, inventory)
+            missing = frame.copy()
+            missing.loc[0, 'Metadata_Plate'] = 'unknown'
+            with self.assertRaisesRegex(ValueError, 'Missing canonical plate-map'):
+                add_plate_maps(missing, root, inventory)
+            # Existing annotations must not bypass the released-table checksum.
+            inventory['files'][relative]['sha256'] = '0' * 64
+            with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+                add_plate_maps(expected, root, inventory)
 
     def test_strict_splits_labels_masks(self):
         for t, expected in [(1, 'train'), (2, 'train'), (3, 'val'), (4, 'test')]:
