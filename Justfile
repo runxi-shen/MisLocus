@@ -129,11 +129,12 @@ classify-all REPS=DEFAULT_REPS:
 benchmark-clinvar REPS=DEFAULT_REPS:
     #!/usr/bin/env bash
     set -euo pipefail
+    dataset_dir=$(pixi run python -c 'from prot_loc_benchmark.config import CLINVAR_BENCHMARK_DIR; print(CLINVAR_BENCHMARK_DIR)')
     pixi run python scripts/10_benchmark_clinvar.py --representations {{REPS}}
     n_reps=$(echo "{{REPS}}" | wc -w)
     if [ "$n_reps" -ge 2 ]; then
         pixi run python scripts/11_summarize_across_reps.py \
-            --dataset-dir data/processed/benchmark/clinvar/full_dataset \
+            --dataset-dir "$dataset_dir" \
             --representations {{REPS}}
     else
         echo "Skipping cross-rep summary (only $n_reps rep)."
@@ -154,13 +155,16 @@ all REPS=DEFAULT_REPS:
     just classify-all "{{REPS}}"
     just benchmark-all "{{REPS}}"
 
-# Wipe per-batch features + classification + benchmark outputs.
+# Wipe outputs only under the configured data root (MISLOCUS_DATA_ROOT or repo/data).
 clean:
-    rm -rf data/interim/cellprofiler/*/features.parquet
-    rm -rf data/interim/cellprofiler/*/normalized.parquet
-    rm -rf data/interim/cytoself/*/features.parquet
-    rm -rf data/interim/subcell_portable_*/*/features.parquet
-    rm -rf data/interim/vit/*/features.parquet
-    rm -rf data/processed/classification
-    rm -rf data/processed/classification_PA
-    rm -rf data/processed/benchmark
+    #!/usr/bin/env bash
+    set -euo pipefail
+    data_dir=$(pixi run python -c 'from prot_loc_benchmark.config import DATA_DIR; print(DATA_DIR)')
+    rm -rf -- "$data_dir"/interim/cellprofiler/*/features.parquet
+    rm -rf -- "$data_dir"/interim/cellprofiler/*/normalized.parquet
+    rm -rf -- "$data_dir"/interim/cytoself/*/features.parquet
+    rm -rf -- "$data_dir"/interim/subcell_portable_*/*/features.parquet
+    rm -rf -- "$data_dir"/interim/vit/*/features.parquet
+    rm -rf -- "$data_dir"/processed/classification
+    rm -rf -- "$data_dir"/processed/classification_PA
+    rm -rf -- "$data_dir"/processed/benchmark

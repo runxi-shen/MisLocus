@@ -17,7 +17,11 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-DATA_DIR = REPO_ROOT / "data"
+# Writable downstream data can live separately from the frozen release and annotations.
+DATA_DIR = Path(os.environ.get("MISLOCUS_DATA_ROOT", REPO_ROOT / "data")).expanduser()
+if not DATA_DIR.is_absolute():
+    raise ValueError("MISLOCUS_DATA_ROOT must be a nonempty absolute path")
+DATA_DIR = DATA_DIR.resolve()
 # Small reference annotations shipped in-repo (under ~11 MB total). Kept out
 # of data/ because data/ is dataset payload that the download script populates;
 # annotations/ is curated metadata that needs to live alongside the code.
@@ -88,9 +92,27 @@ PREPROCESS_CC_THRESHOLD = 20  # drop wells with fewer cells than this
 # cPC cells are still trained as experimental unknowns for classification.
 # Only NC and PC are true controls with special treatment.
 CPC_GENE_ALLELES = [
-    "ABL1", "ADA", "ALDH2", "ALK", "BRD4", "CHRM3", "CSK", "CYP2A6",
-    "GHSR", "KCNQ2", "KRAS", "LPAR1", "LYN", "OPRM1", "PAK1", "PLP1",
-    "PMP22", "PRKCE", "PTK2B", "RB1", "TNF",
+    "ABL1",
+    "ADA",
+    "ALDH2",
+    "ALK",
+    "BRD4",
+    "CHRM3",
+    "CSK",
+    "CYP2A6",
+    "GHSR",
+    "KCNQ2",
+    "KRAS",
+    "LPAR1",
+    "LYN",
+    "OPRM1",
+    "PAK1",
+    "PLP1",
+    "PMP22",
+    "PRKCE",
+    "PTK2B",
+    "RB1",
+    "TNF",
     "ALK_Thr1151Met",
 ]
 
@@ -144,7 +166,7 @@ BATCH_LAYOUT: dict[str, str] = {
 
 # Biological replicate batch pairs for benchmark averaging
 BIOREP_PAIRS: dict[str, tuple[str, str]] = {
-    "pair_78":   ("2024_01_23_Batch_7",  "2024_02_06_Batch_8"),
+    "pair_78": ("2024_01_23_Batch_7", "2024_02_06_Batch_8"),
     "pair_1314": ("2025_01_27_Batch_13", "2025_01_28_Batch_14"),
     "pair_1516": ("2025_03_17_Batch_15", "2025_03_17_Batch_16"),
 }
@@ -156,8 +178,8 @@ ALLELE_COLLECTION_PATH = ANNOTATIONS_DIR / "full_allele_collection.parquet"
 # a new representation; see "Adding a new representation" in the README.
 BENCHMARK_CHANNELS: dict[str, list[str]] = {
     "cellprofiler": ["DNA", "Mito", "AGP", "GFP", "Morph", "ALL"],
-    "cytoself":     ["combined"],
-    "vit":          ["DNA", "Mito", "AGP", "GFP", "Morph", "ALL"],
+    "cytoself": ["combined"],
+    "vit": ["DNA", "Mito", "AGP", "GFP", "Morph", "ALL"],
 }
 
 # Benchmark output directories
@@ -188,9 +210,9 @@ NULL_PERCENTILE = 95
 
 # CellProfiler feature channel patterns (used by classification/channels.py)
 CP_CHANNEL_PATTERNS: dict[str, list[str]] = {
-    "GFP":  ["_GFP"],
-    "DNA":  ["_DNA"],
-    "AGP":  ["_AGP"],
+    "GFP": ["_GFP"],
+    "DNA": ["_DNA"],
+    "AGP": ["_AGP"],
     "Mito": ["_Mito"],
 }
 
@@ -198,17 +220,17 @@ CP_CHANNEL_PATTERNS: dict[str, list[str]] = {
 # Add an entry here when registering a new representation.
 REP_FEATURE_FILES: dict[str, str] = {
     "cellprofiler": "features.parquet",
-    "cytoself":     "features.parquet",
-    "subcell":      "embeddings.parquet",
-    "vit":          "features.parquet",
+    "cytoself": "features.parquet",
+    "subcell": "embeddings.parquet",
+    "vit": "features.parquet",
 }
 
 # Representation → raw, un-preprocessed feature file name.
 # 06_preprocess_profiles reads from this file and writes features.parquet.
 REP_RAW_FILES: dict[str, str] = {
     "cytoself": "latent_codes.parquet",
-    "subcell":  "embeddings.parquet",
-    "vit":      "embeddings.parquet",
+    "subcell": "embeddings.parquet",
+    "vit": "embeddings.parquet",
 }
 
 # Classification output roots
@@ -234,10 +256,7 @@ _PREPROCESSED_SUBCELL_REPS: set[str] = {
 
 
 def _register_subcell_rep(rep: str) -> None:
-    REP_FEATURE_FILES[rep] = (
-        "features.parquet" if rep in _PREPROCESSED_SUBCELL_REPS
-        else "embeddings.parquet"
-    )
+    REP_FEATURE_FILES[rep] = "features.parquet" if rep in _PREPROCESSED_SUBCELL_REPS else "embeddings.parquet"
     REP_RAW_FILES[rep] = "embeddings.parquet"
     BENCHMARK_CHANNELS[rep] = ["EMBED"]
 
@@ -256,6 +275,7 @@ def load_hpa_labels(threshold: float = 1.0) -> dict[str, list[str]]:
     with no organelle above ``threshold`` are excluded.
     """
     import polars as pl
+
     hpa = pl.read_parquet(str(HPA_GENE_LOCALIZATION_PATH))
     loc_cols = [c for c in hpa.columns if c not in ("Gene", "Gene name")]
     labels: dict[str, list[str]] = {}
@@ -316,8 +336,8 @@ SUBCELL_WEIGHTS_DIR = INTERIM_DIR / "subcell_portable" / "weights"
 # convention: R=microtubules, Y=ER, B=nuclei, G=protein. MisLocus mapping:
 # AGP→R, Mito→Y, DNA→B, GFP→G.
 SUBCELL_CHANNEL_CONFIGS: dict[str, list[str]] = {
-    "bg":   ["dna", "gfp"],
-    "rbg":  ["agp", "dna", "gfp"],
+    "bg": ["dna", "gfp"],
+    "rbg": ["agp", "dna", "gfp"],
     "rybg": ["agp", "mito", "dna", "gfp"],
 }
 
@@ -339,9 +359,7 @@ for _ft in ["mae", "vit"]:
 
 # v2 comparisons always use the same downstream preprocessing, never raw vs processed.
 for _ft in ["mae", "vit"]:
-    for _rep in [f"subcell_frozen_rybg_v2_{_ft}", *[
-        f"subcell_allele_rybg_v2_{_ft}_s{seed}" for seed in (42, 43, 44)
-    ]]:
+    for _rep in [f"subcell_frozen_rybg_v2_{_ft}", *[f"subcell_allele_rybg_v2_{_ft}_s{seed}" for seed in (42, 43, 44)]]:
         _PREPROCESSED_SUBCELL_REPS.add(_rep)
         _register_subcell_rep(_rep)
 
@@ -359,10 +377,18 @@ def get_num_cpus() -> int:
 def ensure_dirs() -> None:
     """Create all required interim/processed directories."""
     for d in [
-        RAW_DIR, INTERIM_DIR, PROCESSED_DIR,
-        CELLPROFILER_DIR, SUBCELL_DIR, CYTOSELF_DIR, VIT_DIR,
-        CLASSIFICATION_DIR, CLASSIFICATION_OUTPUT_DIR, BENCHMARK_DIR,
-        CROP_MANIFEST_DIR, SINGLE_CELL_CROPS_DIR,
+        RAW_DIR,
+        INTERIM_DIR,
+        PROCESSED_DIR,
+        CELLPROFILER_DIR,
+        SUBCELL_DIR,
+        CYTOSELF_DIR,
+        VIT_DIR,
+        CLASSIFICATION_DIR,
+        CLASSIFICATION_OUTPUT_DIR,
+        BENCHMARK_DIR,
+        CROP_MANIFEST_DIR,
+        SINGLE_CELL_CROPS_DIR,
     ]:
         d.mkdir(parents=True, exist_ok=True)
 
