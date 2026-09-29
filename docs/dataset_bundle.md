@@ -1,7 +1,9 @@
 # Dataset bundle
 
-The dataset bundle is everything you need to start at the
-preprocessing step (`scripts/06_preprocess_profiles.py`). It is published
+The dataset bundle contains **already-preprocessed `features.parquet`** files
+for classification/benchmarking; do not run feature preprocessing on them again.
+New raw embeddings require a separate, explicitly specified preprocessing stage.
+The bundle is published
 alongside the parent paper / preprint on Hugging Face Hub at
 [`anonymous-xyz96/MisLocus`](https://huggingface.co/datasets/anonymous-xyz96/MisLocus).
 
@@ -12,7 +14,7 @@ Two scripts, run independently:
 | Script                                      | Source                                                             | When you need it                                       |
 |---------------------------------------------|--------------------------------------------------------------------|--------------------------------------------------------|
 | `scripts/00_download_dataset.py`            | HF dataset repo `anonymous-xyz96/MisLocus`                         | Always (unless you already have features locally).     |
-| `scripts/00b_download_subcell_weights.py`   | CZI public S3 (`czi-subcell-public.s3.amazonaws.com/models/`)      | Only if you'll run `08a` / `08c` (SubCell extract / fine-tune). |
+| `scripts/00b_download_subcell_weights.py`   | CZI public S3 (`czi-subcell-public.s3.amazonaws.com/models/`)      | Only for `08b` frozen extraction / `08c` fine-tuning. |
 
 Both are idempotent (skip files already on disk via ETag-based caching);
 pass `--force` to re-fetch.
@@ -74,7 +76,7 @@ just download-subcell
 
 Skip this step if you're only consuming the shipped per-rep
 `features.parquet` files. You only need the encoder weights if you'll
-run `scripts/08a_extract_subcell_embeddings.py` (frozen ViT extraction)
+run `scripts/08b_extract_subcell_embeddings.py` (frozen SubCell MAE/ViT extraction after `08a_prepare_subcell.py`)
 or `scripts/08c_train_subcell_finetune.py` (fine-tuning).
 
 ### What the dataset-download script does
@@ -94,8 +96,9 @@ Anything not under `data/` (notably the curated reference parquets in
 
 ## Layout after download
 
-The download script populates `data/` (everything under `data/` is
-gitignored — pure dataset payload):
+The legacy download script populates `data/`. Do not commit downloaded payloads
+or assume this entire directory is gitignored. New SubCell producers use separate
+external storage instead:
 
 ```
 data/
@@ -149,10 +152,11 @@ B7+B8, B13+B14, B15+B16 (`config.BIOREP_PAIRS`).
 
 ## Manifest schema
 
-`data/interim/crop_manifest/{batch}/manifest.parquet` is the canonical
-cell ordering. Each row is one cell; the corresponding crop sits at index
-`i` in every `*.npy` channel file under
-`data/interim/single_cell_crops/{batch}/{allele}/`.
+`data/interim/crop_manifest/{batch}/manifest.parquet` defines the canonical
+cell cohort and allele labels, **not** per-allele NPY row offsets. Join each
+batch's `Metadata_CellID` to `{batch}/{allele}/metadata.parquet` in its stored
+row order to obtain the matching index in each channel array. Never use the
+global release-manifest row number to index a per-allele NPY.
 
 Required `Metadata_*` columns (also produced by every embeddings extractor —
 see `scripts/08b_extract_vit_embeddings.py:52`):
@@ -165,7 +169,7 @@ Metadata_ImageNumber        int
 Metadata_ObjectNumber       int
 Metadata_gene_allele        str
 Metadata_symbol             str
-Metadata_node_type          str   # "disease_wt" | "allele" | "TC"
+Metadata_node_type          str   # "disease_wt" | "allele" | "NC" | "PC" | "TC"
 Metadata_Control            str   # "Exp" | "cPC" | "NC" | "PC" | "TC"
 Metadata_plate_map_name     str
 ```
@@ -182,7 +186,7 @@ Create `scripts/08x_extract_<myrep>_embeddings.py`. The cleanest template is
 → parquet writer). Your script must:
 
 - Read crops from `data/interim/single_cell_crops/{batch}/{allele}/{channel}.npy`.
-- Read cell ordering from `data/interim/crop_manifest/{batch}/manifest.parquet`.
+- Join the canonical manifest to each allele's stored metadata to obtain NPY row ordering.
 - Run your model and produce one feature vector per cell.
 - Write `data/interim/<myrep>/{batch}/embeddings.parquet` containing:
   - **All 10 `Metadata_*` columns** listed above.
@@ -219,6 +223,12 @@ If your model needs an isolated PyTorch / CUDA stack, mirror the
 
 ### 5. Run the pipeline
 
+The commands below describe the legacy in-repo layout, not permission to write
+preprocessing outputs into an immutable v2 export. For new SubCell outputs, first
+verify the complete representation receipt and hashes, bind inputs into a separate
+analysis root, and resolve the downstream split/normalization/calibration policies.
+See [SubCell storage and completion](subcell_allele_v2.md#storage-provenance-and-completion).
+
 ```bash
 pixi run -e <env> python scripts/08x_extract_<myrep>_embeddings.py --batch <batch>
 pixi run python scripts/06_preprocess_profiles.py --representation <myrep> --batch <batch>
@@ -244,14 +254,35 @@ pixi run python scripts/11_summarize_across_reps.py   # picks up <myrep> automat
   sure the columns match what the classifier expects (`Metadata_*` + numeric
   features).
 
+## Optional canonical SubCell retraining
+
+The classification quickstart does not require training. The optional corrected
+SubCell workflow is documented in [subcell_allele_v2.md](subcell_allele_v2.md).
+For any model using an existing git/LFS Hugging Face mirror, keep it unchanged:
+`01_prepare_cell_crops.py` extracts the raw crops to a **separate** directory and
+records their release revision and checksums, without model dependencies or image
+transforms. `08a_prepare_subcell.py` then performs SubCell-specific preflight.
+Other models use the same raw arrays with their own preparation. Do not run the
+older download/remap command against the shared mirror; its remapped output is
+not the immutable git/LFS input required by01.
+
+Both adapted seed42 exports and their matched frozen four-channel MAE/ViT raw
+controls are complete in separate external storage. All four have the same
+3,332,309 canonical cells and metadata; they are **not** additional downloads in
+this historical HF bundle. See the [evidence inventories](evidence/README.md).
+Matching raw inputs does not replace the separate downstream preprocessing and
+evaluation-policy checks.
+
 ## Reproducibility
 
-- The bundle is content-addressed via the HF dataset repo's revision SHA
-  (which `snapshot_download` records in its cache); pin
-  `--hf-repo anonymous-xyz96/MisLocus@<sha>` to lock it.
-- The classification + benchmark steps are deterministic given the same
-  XGBoost parameters in `config.XGBOOST_PARAMS` (set `random_state` if you
-  add it).
+- The legacy downloader's `--hf-repo` is a repository ID, not a revision argument;
+  `repo@sha` is not a supported pinning interface here. For v2, use a separate
+  git/LFS checkout at the intended immutable commit and let01 record/check its
+  revision and LFS hashes. Do not remap that checkout with the legacy downloader.
+- Reproducible downstream evaluation requires explicit seeds, ordering, runtime,
+  thread/backend limits and input/output bindings; it is not guaranteed by the
+  existing XGBoost parameter dictionary alone. Those fixes belong to the separate
+  downstream workflow.
 - Source-code provenance for the artifacts in the HF bundle is recorded in
   the parent repo's `data/provenance_log.json` (not shipped on the
   dataset-only branch — see the parent project for the originating script

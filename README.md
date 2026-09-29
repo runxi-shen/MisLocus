@@ -49,12 +49,38 @@ REP=cytoself`). `just classify-batch` runs `09_classify.py --gpu`
 two env vars (`CONDA_OVERRIDE_CUDA=12.0`, `CUDA_VERSION=12.0`) the
 lab-server's pixi env needs to keep XGBoost on GPU.
 
-If you're going to run the SubCell extractors (`08a` / `08c`), also fetch
+If you're going to run SubCell extraction/training (`08b` / `08c` / `08d`), also fetch
 the encoder weights:
 
 ```bash
 just download-subcell       # ~2 GB, CZI's public S3 bucket
 ```
+
+## Shared raw-crop preparation (optional, any model)
+
+With an existing **git/LFS Hugging Face release checkout**, use one model-independent
+preparer. It preserves the source and native128×128 uint16 arrays; no resizing,
+normalization, model weights, CUDA or torch are needed (Python3.12+ and git only).
+
+```bash
+python scripts/01_prepare_cell_crops.py inspect --release /path/to/HF-checkout
+python scripts/01_prepare_cell_crops.py extract \
+  --release /path/to/HF-checkout --crops /separate/storage/crops
+# Explicit read-only payload rehash; save stdout outside the crops directory.
+python scripts/01_prepare_cell_crops.py verify --crops /separate/storage/crops
+```
+
+The destination must be new. Receipts record the HF commit/LFS hashes, extracted
+file hashes and producer source. Every model can read the same staged crops and
+choose its own channel order, geometry and normalization. This unpacks published
+cell crops; it does not segment/crop raw microscopy images. Existing model scripts
+may still need their crop-input paths configured; this does not launch other models.
+The legacy `00_download_dataset.py` remap workflow above is unchanged, and its
+remapped output is not the git/LFS source accepted by01.
+
+SubCell uses `01 → 08a preflight → 08b frozen extraction`, or
+`01 → 08a preflight → 08c training → 08d adapted extraction`. Its physical-scale
+preprocessing remains in `preprocessing/subcell.py`, not in the common preparer.
 
 ## Pipeline
 
@@ -90,6 +116,21 @@ data/processed/benchmark/clinvar/full_dataset/summary_across_reps/
 The `cytoself` / `subcell` / `vit` envs only matter if you re-extract or
 retrain a representation from raw crops; they're not needed for the
 classification + benchmark workflow.
+
+Optional, corrected allele-level SubCell retraining is documented in
+[`docs/subcell_allele_v2.md`](docs/subcell_allele_v2.md). It keeps an existing
+Hugging Face mirror unchanged and stages crops/run outputs separately.
+Six fresh MAE/ViT × seed42/43/44 fits and the two seed42 all-T1–T4 raw exports
+are complete and verified. Each export contains 3,332,309 cells × 1,536 FP32
+features. See the [completion evidence and limitations](docs/evidence/README.md)
+and [current review follow-up](docs/reviews/subcell-v2-readiness-followup.md).
+Matched frozen four-channel MAE/ViT bulk exports are also complete: the same
+3,332,309 cells per model, with full readback and exact ordered metadata matching.
+See their [additive evidence inventory](docs/evidence/subcell-v2-frozen-completion.json).
+These outputs are in external versioned storage, **not uploaded into the frozen HF
+bundle**. Historical features are not relabeled as v2. Matched downstream processing
+and scientific/evaluation policies remain separate gates; single-seed adapted
+reporting does not establish seed robustness.
 
 ## Adding a new representation
 

@@ -38,6 +38,7 @@ PR #2 adds the zero-mask evaluation patch; it does not introduce those older
 adaptations. Other retained upstream files are unchanged. Upstream files not
 needed by this vendored subset are not included; this is not a full-repository mirror.
 Custom MisLocus dataset/training code lives in `src/prot_loc_benchmark/` and `scripts/`.
+The historical vendor localization training modules are not the v2 MisLocus entry point.
 
 ### Scientific rationale for zero-mask evaluation
 
@@ -72,8 +73,25 @@ text does not rewrite historical source archives, runs, checkpoints or exports.
 
 ## Dependencies
 
-Requires `transformers==4.45.*` (later versions removed `ViTSdpaAttention`).
-Also needs: lightning, torchvision, omegaconf, scipy, timm.
+The validated companion stack pins PyTorch2.4.1, Transformers4.45.2,
+Torchvision0.19.1, Lightning2.6.1 and timm1.0.26; use the `subcell` environment
+and committed `pixi.lock`, not an unconstrained upgrade. Transformer internals
+such as `ViTSdpaAttention` are version-sensitive. Other dependencies include
+omegaconf and scipy.
+
+## Execution scope
+
+Completed allele-v2 training used companion commit `03b1961`; seed42 adapted
+extraction used `e306037`; the completed matched frozen four-channel exports used
+`d0c61f0`. The latter fixes checkpoint recovery on non-improving validation, not
+model mathematics, input preprocessing or the six original fits. Their immutable
+source archives are authoritative, not this later documentation revision. See
+[protocol and limitations](../../docs/subcell_allele_v2.md) and [completion evidence](../../docs/evidence/README.md).
+
+The local loop retains same-run cross-rank RNG correlation. Different run seeds
+are not identical experiments, but no claim of independent per-rank streams or
+single-seed downstream robustness is made. Later runtime-metadata hardening does
+not reconstruct unrecorded historical determinism flags.
 
 ## Paper
 
