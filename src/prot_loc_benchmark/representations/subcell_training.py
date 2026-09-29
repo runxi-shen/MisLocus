@@ -20,12 +20,12 @@ import torch.nn.functional as F
 from sklearn.metrics import average_precision_score
 from timm.optim.optim_factory import param_groups_weight_decay
 from torch import nn
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler, Subset
 from torch.utils.checkpoint import checkpoint
 
 from prot_loc_benchmark.config import SUBCELL_SCALE_FACTOR
 from prot_loc_benchmark.preprocessing.subcell import SubCellPreprocessor
-from .subcell_finetune import AlleleBatchSampler, EvaluationCells, MisLocusSubCellDataset, collate_cells
+from .subcell_finetune import AlleleBatchSampler, MisLocusSubCellDataset, collate_cells
 from .subcell_manifest import save_json, sha256
 
 
@@ -170,7 +170,7 @@ class AlleleDataModule(L.LightningDataModule):
         return DataLoader(self.train_data, batch_sampler=self.train_sampler, **self._loader_args())
 
     def val_dataloader(self):
-        dataset = EvaluationCells(self.val_data)
+        dataset = Subset(self.val_data, self.val_data.positions)
         sampler = DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank,
                                      shuffle=False, drop_last=False)
         return DataLoader(dataset, batch_size=16, sampler=sampler, **self._loader_args())
