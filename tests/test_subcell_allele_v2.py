@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from models.ntxent import get_contrastive_loss
 from prot_loc_benchmark.config import ALL_PUBLIC_BATCHES, SUBCELL_CHANNEL_FILES
@@ -151,6 +151,9 @@ class AlleleRegression(unittest.TestCase):
         for workers in (0, 2):
             batch = next(iter(DataLoader(dataset, batch_sampler=single, collate_fn=collate_cells, num_workers=workers)))
             self.assertEqual(batch['cell_index'].tolist(), list(single)[0])
+        val_data = MisLocusSubCellDataset(self.frame.loc[self.frame.split == 'val'], self.classes)
+        view = Subset(val_data, val_data.positions)
+        self.assertEqual([view[i]['cell_index'] for i in range(len(view))], val_data.positions.tolist())
         validation = fixed_validation(self.frame)
         self.assertEqual(validation, fixed_validation(self.frame.sample(frac=1, random_state=9)))
         self.assertEqual(set(validation), set(self.frame.loc[self.frame.split == 'val', 'cell_id']))
