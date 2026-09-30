@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from prot_loc_benchmark.config import REP_FEATURE_FILES, canonical_representation
+
 logger = logging.getLogger(__name__)
 
 # Keyword that identifies the protein/GFP channel in feature names
@@ -43,6 +45,9 @@ def get_feature_channels(
       channel is present.
     - Other representations (e.g. subcell): {EMBED} containing all features.
     """
+    representation = canonical_representation(representation)
+    if representation not in REP_FEATURE_FILES and representation not in ("intensity_only", "cell_count"):
+        raise ValueError(f"Unknown representation: {representation}")
     if representation == "intensity_only":
         _intensity_map = {
             "GFP": "Cells_Intensity_MeanIntensity_GFP",

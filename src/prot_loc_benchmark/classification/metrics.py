@@ -19,6 +19,7 @@ from prot_loc_benchmark.config import (
     MAX_IMBALANCE_RATIO,
     MIN_CLASSIFIERS,
     NULL_PERCENTILE,
+    canonical_representation,
 )
 
 logger = logging.getLogger(__name__)
@@ -194,6 +195,7 @@ def load_single_fold_metrics(
     ``is_hit`` are filled with placeholders (0.5 / False) — downstream
     benchmarks read ``auroc_mean`` only.
     """
+    representation = canonical_representation(representation)
     base = (classification_dir or CLASSIFICATION_OUTPUT_DIR) / representation / batch
     info_path = base / "classifier_info.csv"
     metrics_path = base / "metrics.csv"

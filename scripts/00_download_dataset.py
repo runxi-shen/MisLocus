@@ -63,7 +63,11 @@ from prot_loc_benchmark.config import (
     BIOREP_PAIRS,
     DATA_DIR,
     INTERIM_DIR,
+    PUBLIC_TO_SOURCE_REP,
+    REP_FEATURE_FILES,
+    canonical_representation,
 )
+from prot_loc_benchmark.provenance import sha256
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +101,13 @@ def _build_allow_patterns(
         return None  # full mirror
 
     patterns: list[str] = []
+    if reps:
+        source_to_public = {source: public for public, source in PUBLIC_TO_SOURCE_REP.items()}
+        reps = list(dict.fromkeys(canonical_representation(rep) for rep in reps))
+        for rep in reps:
+            if rep not in REP_FEATURE_FILES:
+                raise ValueError(f"Unknown representation: {rep}")
+        reps = [source_to_public.get(rep, rep) for rep in reps]
 
     # Per-rep features.
     if reps and batches:
@@ -145,12 +156,30 @@ def _remap_to_pipeline_layout() -> None:
     # representations/ → interim/
     src_root = DATA_DIR / "representations"
     if src_root.is_dir():
-        for src in src_root.rglob("*"):
-            if src.is_file():
-                dst = INTERIM_DIR / src.relative_to(src_root)
-                dst.parent.mkdir(parents=True, exist_ok=True)
+        moves = []
+        destinations = {}
+        # Preflight alias collisions before moving any feature files.
+        for src in sorted(src_root.rglob("*")):
+            if not src.is_file():
+                continue
+            relative = src.relative_to(src_root)
+            rep = canonical_representation(relative.parts[0])
+            if rep not in REP_FEATURE_FILES:
+                raise ValueError(f"Unknown representation: {relative.parts[0]}")
+            dst = INTERIM_DIR / rep / Path(*relative.parts[1:])
+            for existing in (dst, destinations.get(dst)):
+                if existing is not None and existing.exists():
+                    if not existing.is_file() or sha256(src) != sha256(existing):
+                        raise FileExistsError(f"Conflicting feature files: {src} and {existing}")
+            destinations[dst] = src
+            moves.append((src, dst))
+        for src, dst in moves:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.exists():
+                src.unlink()  # Identical bytes already admitted; keep the existing file.
+            else:
                 shutil.move(str(src), str(dst))
-                logger.info("  [features] %s → %s", src.relative_to(DATA_DIR), dst.relative_to(DATA_DIR))
+            logger.info("  [features] %s → %s", src.relative_to(DATA_DIR), dst.relative_to(DATA_DIR))
         _rmdir_if_empty_recursive(src_root)
 
     # manifest/manifest_Batch_X.parquet → interim/crop_manifest/{full}/manifest.parquet
@@ -322,7 +351,8 @@ def main() -> int:
         "--rep", "--representation", action="append", default=None,
         help=(
             "Restrict download to one or more representations "
-            "(e.g. cytoself, cellprofiler, subcell_portable_rbg_vit). "
+            "(e.g. morphem, cytoself, cellprofiler). 'vit' also downloads "
+            "public 'morphem'; both are admitted under interim/vit/. "
             "Comma-separated or repeat the flag. Default: all reps."
         ),
     )

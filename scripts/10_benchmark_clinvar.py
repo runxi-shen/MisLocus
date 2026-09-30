@@ -36,6 +36,7 @@ from prot_loc_benchmark.config import (
     CLASSIFICATION_PA_DIR,
     CLINVAR_BENCHMARK_DIR,
     CLINVAR_SINGLE_FOLD_DIR,
+    canonical_representation,
 )
 
 from prot_loc_benchmark.viz.benchmark import (
@@ -63,7 +64,7 @@ def load_pa_metrics(
     if present (legacy column).
     """
     frames = []
-    for rep in representations:
+    for rep in dict.fromkeys(map(canonical_representation, representations)):
         for pair_name, (batch_a, batch_b) in biorep_pairs.items():
             for batch in (batch_a, batch_b):
                 path = CLASSIFICATION_PA_DIR / rep / batch / "mAP_results.parquet"
@@ -114,6 +115,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--representations",
+        type=canonical_representation,
         nargs="+",
         default=["cellprofiler", "cytoself", "cytoself_unseen"],
         help="Representations to benchmark (default: cellprofiler cytoself cytoself_unseen)",
@@ -151,6 +153,7 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    args.representations = list(dict.fromkeys(args.representations))
 
     logging.basicConfig(
         level=logging.INFO,

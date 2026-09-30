@@ -49,6 +49,7 @@ from prot_loc_benchmark.config import (
     NULL_PERCENTILE,
     PROCESSED_DIR,
     REP_FEATURE_FILES,
+    canonical_representation,
 )
 from prot_loc_benchmark.provenance import record
 
@@ -116,7 +117,8 @@ def _load_cellprofiler(batch_id: str, cp_feature_file: str = "normalized") -> pl
 
 
 def _load_dl(representation: str, batch_id: str) -> pl.DataFrame:
-    """Load DL embeddings.parquet (already contains Metadata_Control)."""
+    """Load the configured feature file without additional preprocessing."""
+    representation = canonical_representation(representation)
     feature_file = REP_FEATURE_FILES.get(representation)
     if feature_file is None:
         logger.error("Unknown representation: %s", representation)
@@ -892,6 +894,9 @@ def run_phenotypic_activity(
     t0 = time.time()
 
     # ── Resolve paths and config ──────────────────────────────────────
+    representation = canonical_representation(representation)
+    if representation not in REP_FEATURE_FILES:
+        raise ValueError(f"Unknown representation: {representation}")
     layout = BATCH_LAYOUT.get(batch_id)
     if layout is None:
         logger.error("Unknown batch %s (not in BATCH_LAYOUT)", batch_id)
@@ -1116,8 +1121,9 @@ def main() -> None:
     parser.add_argument(
         "--representation",
         required=True,
+        type=canonical_representation,
         choices=sorted(REP_FEATURE_FILES),
-        help="Feature representation to use",
+        help="Feature representation to use (morphem is an alias for vit)",
     )
     parser.add_argument(
         "--scope",

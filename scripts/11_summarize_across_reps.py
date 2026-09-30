@@ -27,6 +27,7 @@ import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from prot_loc_benchmark.config import canonical_representation
 from prot_loc_benchmark.predictor_annotations import PREDICTORS
 from prot_loc_benchmark.viz.benchmark import (
     plot_auroc_correlation,
@@ -51,7 +52,7 @@ def load_per_rep_summaries(
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Load and concatenate per-rep summary CSVs."""
     avg_frames, clinvar_frames, wilcox_frames = [], [], []
-    for rep in representations:
+    for rep in dict.fromkeys(map(canonical_representation, representations)):
         summary_dir = dataset_dir / rep / "summary"
         if not summary_dir.exists():
             log.warning("No summary dir for %s, skipping", rep)
@@ -96,6 +97,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--representations",
+        type=canonical_representation,
         nargs="+",
         default=None,
         help="Representations to include (default: auto-discover from dataset-dir)",
@@ -133,7 +135,7 @@ def main() -> None:
         log.error("Dataset dir does not exist: %s", dataset_dir)
         sys.exit(1)
 
-    representations = args.representations or discover_representations(dataset_dir)
+    representations = list(dict.fromkeys(args.representations or discover_representations(dataset_dir)))
     if len(representations) < 2:
         log.error(
             "Need ≥2 representations for cross-rep summary, found %d: %s",

@@ -57,6 +57,7 @@ from prot_loc_benchmark.config import (
     INTERIM_DIR,
     MIN_CELL_COUNT,
     REP_FEATURE_FILES,
+    canonical_representation,
 )
 
 logging.basicConfig(
@@ -87,6 +88,7 @@ def classify_batch(
     t0 = time.time()
 
     # ── Resolve paths and config ─────────────────────────────────────
+    representation = canonical_representation(representation)
     layout = BATCH_LAYOUT.get(batch_id)
     if layout is None:
         logger.error("Unknown batch %s (not in BATCH_LAYOUT)", batch_id)
@@ -291,8 +293,9 @@ def main() -> None:
     parser.add_argument(
         "--representation",
         required=True,
+        type=canonical_representation,
         choices=sorted(REP_FEATURE_FILES),
-        help="Feature representation to classify",
+        help="Feature representation to classify (morphem is an alias for vit)",
     )
     parser.add_argument(
         "--scope",
