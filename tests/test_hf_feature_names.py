@@ -65,6 +65,54 @@ class HFFeatureNameChecks(unittest.TestCase):
         self.frame.write_parquet(path)
         return path
 
+    def test_download_revision_default_and_override(self):
+        pinned = '74f63113a76b4a832285da308f3df2932266e456'
+        for function in (download.download_dataset_bundle, download.download_sample):
+            for repo, revision in (('anonymous-xyz96/MisLocus', None),
+                                   ('anonymous-xyz96/MisLocus', 'a' * 40), ('other/dataset', 'b' * 40)):
+                with self.subTest(function=function.__name__, repo=repo, revision=revision), patch(
+                    'huggingface_hub.snapshot_download'
+                ) as snapshot:
+                    function(repo, **({'revision': revision} if revision else {}))
+                    self.assertEqual(snapshot.call_args.kwargs['revision'], revision or pinned)
+                    self.assertEqual(snapshot.call_args.kwargs['repo_id'], repo)
+
+    def test_download_revision_rejected_before_network(self):
+        for function in (download.download_dataset_bundle, download.download_sample):
+            for repo, revision in (('other/dataset', None), ('anonymous-xyz96/MisLocus', ''),
+                                   ('anonymous-xyz96/MisLocus', 'main'), ('anonymous-xyz96/MisLocus', 'a' * 39)):
+                with self.subTest(function=function.__name__, repo=repo, revision=revision), patch(
+                    'huggingface_hub.snapshot_download'
+                ) as snapshot, self.assertRaisesRegex(ValueError, 'revision'):
+                    function(repo, revision=revision)
+                snapshot.assert_not_called()
+
+    def test_download_cli_pins_full_filtered_and_sample_modes(self):
+        for mode in ([], ['--rep', 'morphem', '--batch', BATCH], ['--sample']):
+            for override in ([], ['--revision', 'a' * 40], ['--hf-repo', 'other/dataset', '--revision', 'a' * 40]):
+                with self.subTest(mode=mode, override=override), patch.object(
+                    download, 'DEFAULT_HF_REPO', 'anonymous-xyz96/MisLocus'
+                ), patch.object(sys, 'argv', ['download', *mode, *override]), patch(
+                    'huggingface_hub.snapshot_download'
+                ) as snapshot:
+                    self.assertEqual(download.main(), 0)
+                    self.assertEqual(snapshot.call_args.kwargs['revision'],
+                                     'a' * 40 if override else '74f63113a76b4a832285da308f3df2932266e456')
+                    self.assertEqual(snapshot.call_args.kwargs['repo_id'],
+                                     'other/dataset' if '--hf-repo' in override else 'anonymous-xyz96/MisLocus')
+
+    def test_download_cli_requires_revision_for_repo_override(self):
+        for default_repo, flags in (('anonymous-xyz96/MisLocus', ['--hf-repo', 'other/dataset']),
+                                    ('other/dataset', [])):
+            with self.subTest(default_repo=default_repo), patch.object(
+                download, 'DEFAULT_HF_REPO', default_repo
+            ), patch.object(sys, 'argv', ['download', *flags]), patch(
+                'huggingface_hub.snapshot_download'
+            ) as snapshot, self.assertRaises(SystemExit) as error:
+                download.main()
+            self.assertEqual(error.exception.code, 2)
+            snapshot.assert_not_called()
+
     def test_public_and_legacy_download_filters_use_public_directory(self):
         expected = download._build_allow_patterns(['morphem'], [BATCH], False)
         self.assertEqual(download._build_allow_patterns(['vit'], [BATCH], False), expected)
@@ -80,7 +128,7 @@ class HFFeatureNameChecks(unittest.TestCase):
 
         expected_digest = sha256(self.stage())
         with patch('huggingface_hub.snapshot_download', side_effect=snapshot):
-            download.download_dataset_bundle('synthetic', reps=['vit'], batches=[BATCH], include_crops=False)
+            download.download_dataset_bundle('anonymous-xyz96/MisLocus', reps=['vit'], batches=[BATCH], include_crops=False)
         path = self.interim / 'vit' / BATCH / 'features.parquet'
         self.assertTrue(path.exists())
         self.assertEqual(sha256(path), expected_digest)
@@ -133,7 +181,7 @@ class HFFeatureNameChecks(unittest.TestCase):
     def test_unknown_feature_names_fail_before_download_or_loading(self):
         with patch('huggingface_hub.snapshot_download') as snapshot:
             with self.assertRaisesRegex(ValueError, 'Unknown representation'):
-                download.download_dataset_bundle('synthetic', reps=['typo'], include_crops=False)
+                download.download_dataset_bundle('anonymous-xyz96/MisLocus', reps=['typo'], include_crops=False)
             snapshot.assert_not_called()
         with self.assertRaisesRegex(ValueError, 'Unknown representation'):
             hpa._load_dl('typo', BATCH)

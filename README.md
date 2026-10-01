@@ -1,15 +1,15 @@
 # MisLocus — companion repo
 
-Reproduce the protein-localization representation benchmark from the published
-**MisLocus single-cell crop dataset**. This repo ships the code needed
-*downstream* of feature preprocessing — `features.parquet` files come
-pre-computed in the dataset bundle, ready for classification and benchmarking.
+Consume the published **MisLocus single-cell crop dataset** for
+protein-localization representation scoring. The shipped `features.parquet`
+files are already cleaned: **skip `06_preprocess_profiles.py` and do not
+normalize them again**. Crops, encoder weights, and training are optional.
 
 ## What you get
 
 The dataset bundle (download separately, see below) ships into `data/`:
 
-- **Per-rep features** — `data/interim/{cellprofiler,cytoself,subcell_portable_*,vit}/{batch}/features.parquet`.
+- **Seven representations** — CellProfiler, Cytoself, MorphEm, and the portable RBG / fine-tuned SubCell MAE and ViT models, under `data/interim/{rep}/{batch}/features.parquet`. Public `morphem` maps to local `vit`; both names are accepted by the downloader and scoring consumers.
 - **Crop manifest** — `data/interim/crop_manifest/{batch}/manifest.parquet` (one row per cell).
 - **QC'd single-cell crops** (optional) — `data/interim/single_cell_crops/{batch}/{allele}/*.npy` (128×128 uint16, 4 channels: DNA / GFP / AGP / Mito).
 
@@ -23,40 +23,41 @@ and the download script's CLI options.
 
 ## Quickstart
 
-The five recipes you'll actually use (run `just --list` for the full set):
+From the repository root, with [Pixi](https://pixi.sh/install) installed:
 
 ```bash
-# 0. Install pixi: https://pixi.sh/install
-just install
+# Dependencies only: no project-package installation or optional environments.
+pixi install --frozen -e default --skip prot-loc-benchmark
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 
-# 1. Browseable sample (~1.2 GB, no GPU needed) — 8 alleles × 2 batches
-#    of single-cell crops, plus a sample manifest.
-just download-sample
-just inspect-sample
+# All published features, manifests, and metadata at the pinned HF commit.
+# This can still be a large transfer; crop archives are excluded.
+.pixi/envs/default/bin/python scripts/00_download_dataset.py --no-include-crops
 
-# 2. One batch of CellProfiler features (~3 GB), then classify on it.
-just download-batch         # default: cellprofiler / 2025_01_27_Batch_13
-just classify-batch         # XGBoost AUROC + copairs PA mAP
-
-# 3. Or pull everything (every rep × every batch + crop tarballs).
-just download-all
+# Alternatively, start with one representation and batch.
+.pixi/envs/default/bin/python scripts/00_download_dataset.py \
+    --rep morphem --batch 2024_02_06_Batch_8
 ```
 
-`just download-batch` and `just classify-batch` both accept `BATCH=…` and
-`REP=…` overrides (`just classify-batch BATCH=2025_01_28_Batch_14
-REP=cytoself`). `just classify-batch` runs `09_classify.py --gpu`
-(GPU-required) followed by `09c_classify_PA.py` (CPU); the recipe sets the
-two env vars (`CONDA_OVERRIDE_CUDA=12.0`, `CUDA_VERSION=12.0`) the
-lab-server's pixi env needs to keep XGBoost on GPU.
+Downloads default to the tested immutable revision documented in
+[`docs/dataset_bundle.md`](docs/dataset_bundle.md#reproducibility), not HF main.
+Override it with `--revision <commit-sha>`; alternate repositories require an
+explicit revision. Use a fresh `data/` directory when switching revisions.
+Identical features can be re-imported; different destination bytes are rejected.
+This prepares inputs, not comparison results or an exact synchronized mirror.
 
-If you're going to run the SubCell extractors (`08a` / `08c`), also fetch
-the encoder weights:
-
-```bash
-just download-subcell       # ~2 GB, CZI's public S3 bucket
-```
+Use the direct interpreter above to avoid Pixi automatically installing the
+project package. Existing Justfile recipes retain older environment/default
+choices and are not this dependency-only quickstart. `--sample` downloads only
+browseable crops, not scoring features; encoder weights are unnecessary here.
 
 ## Pipeline
+
+Bounded real-data CPU checks cover all seven representations through native
+XGBoost, PA, and HPA scoring APIs. They do not certify a complete comparison
+workflow, production calibration/hit calls, GPU parity, or paper reproduction.
+Further downstream integration remains in progress. HPA reads reference-cell
+features directly; ClinVar and cross-representation summaries consume scores.
 
 ```
 data/interim/{rep}/{batch}/features.parquet      ← shipped in the bundle
@@ -84,7 +85,7 @@ data/processed/benchmark/clinvar/full_dataset/summary_across_reps/
 
 | Env       | Used for                                                 |
 |-----------|----------------------------------------------------------|
-| `default` | PA mAP (`09c`), benchmarks (`10` / `10b` / `11`). CPU only. |
+| `default` | Downloads, CPU XGBoost (`09`), PA (`09c`), benchmarks (`10` / `10b` / `11`). |
 | `gpu`     | XGBoost classification (`09 --gpu`). Inherits `default` + adds the CUDA-12 system requirement so conda-forge resolves to GPU-enabled xgboost. |
 
 The `cytoself` / `subcell` / `vit` envs only matter if you re-extract or

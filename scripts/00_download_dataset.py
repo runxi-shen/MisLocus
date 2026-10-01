@@ -4,10 +4,11 @@
 This is **Step 0** for any user starting from a fresh clone of the minimum
 branch. It mirrors the HF dataset repo ``anonymous-xyz96/MisLocus`` (override
 with ``--hf-repo`` or the ``PROT_LOC_BENCHMARK_HF_REPO`` env var) into
-``data/`` and remaps the on-disk layout to what the pipeline expects:
+``data/`` at a pinned commit and remaps to the pipeline layout. Published
+cleaned features need no preprocessing. Use --no-include-crops for scoring:
 
   representations/{rep}/{batch}/features.parquet
-      → data/interim/{rep}/{batch}/features.parquet
+      → data/interim/{rep}/{batch}/features.parquet (morphem → vit)
   manifest/manifest_Batch_X.parquet
       → data/interim/crop_manifest/{full_batch}/manifest.parquet
   single_cell_crops/{batch}/shard-NN.tar.gz
@@ -18,31 +19,34 @@ HF-only repo metadata (LICENSE, README.md, MisLocus_croissant.json,
 ``.gitattributes`` in particular would otherwise activate LFS smudge for
 every parquet in the working tree.
 
-Uses ``huggingface_hub.snapshot_download`` (ETag-based caching, idempotent;
-pass ``--force`` to re-fetch).
+Uses ``huggingface_hub.snapshot_download`` with an immutable revision.
+Identical feature re-imports are safe; differing destination bytes are rejected.
+Use a fresh data directory when changing repositories or revisions. Remapped
+files may be fetched again; --force re-fetches but does not bypass collisions.
 
 SubCell encoder weights are downloaded by a separate script
 (``scripts/00b_download_subcell_weights.py``) — only needed if you'll run
 ``08a`` / ``08c`` (SubCell extract / fine-tune).
 
 Usage:
-    pixi run python scripts/00_download_dataset.py                    # full mirror
+    .pixi/envs/default/bin/python scripts/00_download_dataset.py --no-include-crops
 
     # Just the small browseable sample subset (~1.2 GB, 8 alleles × 2
     # batches of single-cell crops + a sample manifest). Doesn't touch
     # the rest of the bundle. Files land at data/sample/.
-    pixi run python scripts/00_download_dataset.py --sample
+    .pixi/envs/default/bin/python scripts/00_download_dataset.py --sample
 
     # Subset a single rep + batch (e.g. for a smoke test). Crops are
     # excluded by default in subset mode (override with --include-crops).
-    pixi run python scripts/00_download_dataset.py \\
-        --rep cytoself --batch 2025_01_27_Batch_13
+    .pixi/envs/default/bin/python scripts/00_download_dataset.py \\
+        --rep morphem --batch 2024_02_06_Batch_8
 
     # Multiple reps / batches (comma-separated or repeated flags).
-    pixi run python scripts/00_download_dataset.py --rep cytoself,cellprofiler
+    .pixi/envs/default/bin/python scripts/00_download_dataset.py --rep cytoself,cellprofiler
 
-    # Override the HF repo (or set PROT_LOC_BENCHMARK_HF_REPO).
-    pixi run python scripts/00_download_dataset.py --hf-repo myorg/my-dataset
+    # Alternate repos (including env-var overrides) require their own commit SHA.
+    .pixi/envs/default/bin/python scripts/00_download_dataset.py \\
+        --hf-repo myorg/my-dataset --revision <40-character-commit-sha> --no-include-crops
 """
 from __future__ import annotations
 
@@ -71,11 +75,19 @@ from prot_loc_benchmark.provenance import sha256
 
 logger = logging.getLogger(__name__)
 
-# HF dataset repo id. Override at invocation time with --hf-repo or env var.
-DEFAULT_HF_REPO = os.environ.get(
-    "PROT_LOC_BENCHMARK_HF_REPO",
-    "anonymous-xyz96/MisLocus",
-)
+HF_REPO = "anonymous-xyz96/MisLocus"
+DEFAULT_HF_REVISION = "74f63113a76b4a832285da308f3df2932266e456"
+DEFAULT_HF_REPO = os.environ.get("PROT_LOC_BENCHMARK_HF_REPO", HF_REPO)
+
+
+def _resolve_revision(hf_repo: str, revision: str | None) -> str:
+    if revision is None:
+        if hf_repo != HF_REPO:
+            raise ValueError("An alternate HF repository requires --revision with its own commit SHA")
+        revision = DEFAULT_HF_REVISION
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("--revision must be a full 40-character lowercase hexadecimal commit SHA")
+    return revision
 
 # Build {short_batch_num: full_batch_id}, e.g. "13" -> "2025_01_27_Batch_13".
 # Used to remap HF's manifest_Batch_X.parquet to per-batch crop_manifest dirs.
@@ -244,7 +256,7 @@ def _cleanup_hf_root_noise() -> None:
             logger.info("  [cleanup] removed HF artifact %s", p.relative_to(DATA_DIR))
 
 
-def download_sample(hf_repo: str, force: bool = False) -> None:
+def download_sample(hf_repo: str, force: bool = False, *, revision: str | None = None) -> None:
     """Download the small browseable sample subset (~1.2 GB) into ``data/sample/``.
 
     The HF repo ships a ``sample/`` directory with one tarball per
@@ -258,10 +270,12 @@ def download_sample(hf_repo: str, force: bool = False) -> None:
     """
     from huggingface_hub import snapshot_download
 
-    logger.info("Downloading sample subset from %s into %s ...", hf_repo, DATA_DIR)
+    revision = _resolve_revision(hf_repo, revision)
+    logger.info("Downloading sample subset from %s at %s into %s ...", hf_repo, revision, DATA_DIR)
     snapshot_download(
         repo_id=hf_repo,
         repo_type="dataset",
+        revision=revision,
         local_dir=str(DATA_DIR),
         force_download=force,
         allow_patterns=["sample/**", "*.md", "LICENSE", "*.json", ".gitattributes"],
@@ -288,6 +302,7 @@ def download_sample(hf_repo: str, force: bool = False) -> None:
 def download_dataset_bundle(
     hf_repo: str,
     *,
+    revision: str | None = None,
     reps: list[str] | None = None,
     batches: list[str] | None = None,
     include_crops: bool = True,
@@ -299,12 +314,13 @@ def download_dataset_bundle(
     """
     from huggingface_hub import snapshot_download
 
+    revision = _resolve_revision(hf_repo, revision)
     allow_patterns = _build_allow_patterns(reps, batches, include_crops)
 
     is_subset = allow_patterns is not None
     logger.info(
-        "Snapshotting HF repo %s into %s (mode=%s, crops=%s)",
-        hf_repo, DATA_DIR,
+        "Snapshotting HF repo %s at %s into %s (mode=%s, crops=%s)",
+        hf_repo, revision, DATA_DIR,
         "subset" if is_subset else "full",
         "yes" if include_crops else "no",
     )
@@ -315,6 +331,7 @@ def download_dataset_bundle(
     snapshot_download(
         repo_id=hf_repo,
         repo_type="dataset",
+        revision=revision,
         local_dir=str(DATA_DIR),
         force_download=force,
         allow_patterns=allow_patterns,
@@ -346,6 +363,10 @@ def main() -> int:
             "Hugging Face dataset repo id (default: env var "
             "PROT_LOC_BENCHMARK_HF_REPO or the repo baked into this script)."
         ),
+    )
+    parser.add_argument(
+        "--revision",
+        help=f"Full commit SHA (default for {HF_REPO}: {DEFAULT_HF_REVISION}); required for alternate repos.",
     )
     parser.add_argument(
         "--rep", "--representation", action="append", default=None,
@@ -388,6 +409,10 @@ def main() -> int:
         help="Re-download even if destination already exists.",
     )
     args = parser.parse_args()
+    try:
+        revision = _resolve_revision(args.hf_repo, args.revision)
+    except ValueError as error:
+        parser.error(str(error))
 
     if args.sample and (args.rep or args.batch or args.include_crops is not None):
         parser.error("--sample is mutually exclusive with --rep / --batch / --include-crops")
@@ -409,10 +434,11 @@ def main() -> int:
         include_crops = args.include_crops
 
     if args.sample:
-        download_sample(args.hf_repo, force=args.force)
+        download_sample(args.hf_repo, force=args.force, revision=revision)
     else:
         download_dataset_bundle(
             args.hf_repo,
+            revision=revision,
             reps=reps,
             batches=batches,
             include_crops=include_crops,
