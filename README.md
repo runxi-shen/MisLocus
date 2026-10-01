@@ -72,6 +72,8 @@ Downloads use a pinned HF commit, not moving main. Use a fresh `data/` directory
 when changing repositories or revisions. See the
 [download and revision options](docs/dataset_bundle.md#reproducibility) for
 explicit overrides. These commands prepare inputs; they do not run benchmarks.
+Continue with [CPU scoring and script navigation](docs/dataset_bundle.md#run-cpu-scoring-on-published-features)
+for checked commands, output locations, and current CLI limitations.
 
 ## Benchmark workflow
 
