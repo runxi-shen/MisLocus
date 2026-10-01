@@ -33,7 +33,7 @@ Cross-representation:
 
 Inputs:
     CellProfiler: data/interim/cellprofiler/{batch}/features.parquet
-    DL reps:      data/interim/{rep}/{batch}/embeddings.parquet
+    DL reps:      data/interim/{rep}/{batch}/features.parquet
     HPA table:    annotations/hpa_gene_localization_table.parquet
 """
 
@@ -95,7 +95,7 @@ def _load_cellprofiler(batch: str) -> pl.DataFrame:
 
 
 def _load_dl(rep: str, batch: str) -> pl.DataFrame:
-    """Load a DL representation's embeddings for one batch.
+    """Load a DL representation's feature table for one batch.
 
     Dispatches on REP_FEATURE_FILES to pick the right filename per rep
     (features.parquet, embeddings.parquet, etc.). Returns an empty DataFrame

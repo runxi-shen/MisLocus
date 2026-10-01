@@ -1,5 +1,5 @@
-# Legacy convenience recipes, not the dependency-only feature quickstart.
-# See docs/dataset_bundle.md for checked direct CPU commands and CLI limitations.
+# Convenience recipes for downloads and analysis.
+# See docs/dataset_bundle.md for direct CPU commands and input requirements.
 # These recipes use pixi run (which may install the project package), GPU
 # classification, and older representation defaults. `all` preprocesses inputs:
 # DO NOT use it on already-cleaned published features. `clean` deletes outputs.
@@ -13,7 +13,7 @@ set dotenv-load := true
 #   BATCHES=2025_01_27_Batch_13,2025_01_28_Batch_14 just preprocess cellprofiler
 BATCHES := "2024_01_23_Batch_7,2024_02_06_Batch_8,2025_01_27_Batch_13,2025_01_28_Batch_14,2025_03_17_Batch_15,2025_03_17_Batch_16"
 
-# Legacy selection, not the seven published HF names. Override per-call.
+# Recipe defaults. Select representations present in your input data.
 DEFAULT_REPS := "cellprofiler cytoself subcell_portable_bg_vit vit"
 
 # ============================================================================
@@ -44,7 +44,7 @@ inspect-sample:
 download-batch BATCH="2025_01_27_Batch_13" REP="cellprofiler":
     pixi run python scripts/00_download_dataset.py --rep {{REP}} --batch {{BATCH}}
 
-# GPU XGBoost + PA on a complete batch; not a small CPU smoke. Requires downloaded features.
+# GPU XGBoost + PA on a complete batch. Requires downloaded features.
 classify-batch BATCH="2025_01_27_Batch_13" REP="cellprofiler":
     # CONDA_OVERRIDE_CUDA: lets pixi resolve the gpu env's `__cuda`
     # virtual package on hosts where it isn't auto-detected.

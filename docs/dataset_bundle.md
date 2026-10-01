@@ -55,12 +55,13 @@ are excluded by default in subset mode:
     --batch 2025_01_27_Batch_13 --include-crops
 ```
 
-### Dataset bundle — override the HF repo
+### Downloading from another Hugging Face dataset (optional)
 
-Alternate repositories, including `PROT_LOC_BENCHMARK_HF_REPO` overrides, require
-an explicit full commit SHA belonging to that repository. Branches and tags
-are rejected; `repo@sha` is not supported syntax. Replace the repository and
-quoted SHA placeholder before running:
+The commands above use `anonymous-xyz96/MisLocus`. To download a different
+dataset with the same directory layout, use `--hf-repo` for its name and
+`--revision` for its version. Replace both example values below; the version
+must be a full 40-character lowercase commit ID from that dataset's history,
+not a branch or tag:
 
 ```bash
 .pixi/envs/default/bin/python scripts/00_download_dataset.py \
@@ -133,14 +134,10 @@ This writes `mAP_results.parquet` and `mAP_control.parquet` under
 Control-null computation stays enabled. The producer's `is_hit` uses p95;
 it is not the reporting rule that additionally requires within-batch BH.
 
-**These are usage checks, not production-analysis settings.** The commands
-were exercised on an 840-row unchanged-feature subset, not a complete download.
+**The 32-draw setting is for checking execution, not significance or hit calling.**
 A complete batch can require substantial memory and time: `--scope` and
 `--channels` do not limit how many feature rows XGBoost loads, and PA retains
-its reference pool. The 32-draw PA setting is only for checking execution,
-not reliable significance or hit calling. Changing null sizes alone does not
-establish a validated production workflow. `--sample` downloads browseable
-crops, not a ready-to-run scoring fixture.
+its reference pool. `--sample` downloads browseable crops, not scoring features.
 
 ### Script map and downstream prerequisites
 
@@ -162,19 +159,18 @@ crops, not a ready-to-run scoring fixture.
 
 For ClinVar, prepare the intended biological-replicate batches (see
 [batch identifiers](#batch-identifiers)) and select representations explicitly;
-a one-batch smoke is not a complete paired comparison. `10` defaults to
+one batch is not a complete paired comparison. `10` defaults to
 four-fold XGBoost summaries; `--fold-mode t4-only` selects T4-test metrics.
 `--pa` reads PA results instead, and ignores `--fold-mode`. The current PA
 reader looks under unsuffixed representation directories, not the `vit_t4`
 output above: do not rename those outputs to imply compatible evaluation.
 `11` consumes the matching `10` output directory, not features directly.
-These downstream comparisons were not validated by the scoring smoke.
 
 ### HPA reference-localization analysis
 
-HPA uses gene-level labels from the bundled
-`annotations/hpa_gene_localization_table.parquet`, not Lacoste variant labels
-or classification scores. Using the same CPU environment and `PYTHONPATH`:
+HPA matches reference-cell profiles to gene-level labels in
+`annotations/hpa_gene_localization_table.parquet`. Use the same CPU environment
+and `PYTHONPATH`:
 
 ```bash
 # Choose a fresh output directory. Small null size is for a usage check only.
@@ -186,11 +182,8 @@ or classification scores. Using the same CPU environment and `PYTHONPATH`:
 
 Outputs include `summary/ap_scores_pooled.parquet`, per-channel CSV summaries,
 per-representation tables, PNG heatmaps/distributions/PCA plots, and provenance
-sidecars. The CLI was checked to completion on the same 840-row subset with
-six reference genes. **LaTeX export is not required or produced**; CSV/Parquet
-are the numerical results, and the plots are analysis aids, not a manuscript
-regeneration workflow. Generated results stay outside source control. As with
-PA, these small-null smoke settings do not establish production significance.
+sidecars. Generated results stay outside source control. As with PA, 32 null
+draws are for checking execution, not significance testing.
 
 Inspect current arguments without running an analysis:
 
@@ -207,8 +200,7 @@ The CPU commands explicitly set `MISLOCUS_CLASSIFIER_BACKEND=cpu`; omitting
 GPU XGBoost uses the `gpu` environment (CUDA 12 requirement) and `09 --gpu`.
 Device selection can fall back to CPU: check the actual backend in the log.
 Never substitute CPU calibration for GPU scores, or reuse controls computed
-with different scoring settings. GPU installation/execution and parity were
-not checked in this usage pass.
+with different scoring settings.
 
 Encoder work uses the separate `cytoself`, `subcell` or `vit` environments,
 currently declaring CUDA 12.4. Their model-input preparation is not feature
@@ -230,10 +222,8 @@ The seven published names are `cellprofiler`, `cytoself`, `morphem`,
 `morphem` and admit it to `interim/vit/`; outputs retain the internal `vit` label.
 MorphEm uses `ViT_{gfp,dna,agp,mito}_0..383`: GFP=384, Morph=1152, ALL=1536
 features. Cleaned feature counts for other representations can vary by batch.
-Representation names alone do not establish fine-tuned model/export lineage.
 
-The download script populates `data/` (everything under `data/` is
-gitignored — pure dataset payload):
+Downloaded inputs and generated results live under `data/`, which Git ignores:
 
 ```
 data/
@@ -275,14 +265,14 @@ HPA_GENE_LOCALIZATION_PATH}`.
 
 The bundle is keyed by MisLocus batch IDs:
 
-| Batch | ID                  | Notes      |
-|-------|---------------------|------------|
-| 7     | 2024_01_23_Batch_7  | A1R1 only  |
-| 8     | 2024_02_06_Batch_8  | A1R2 only  |
-| 13    | 2025_01_27_Batch_13 |            |
-| 14    | 2025_01_28_Batch_14 |            |
-| 15    | 2025_03_17_Batch_15 |            |
-| 16    | 2025_03_17_Batch_16 |            |
+| Batch | ID                 |
+|-------|--------------------|
+| 7     | 2024_01_23_Batch_7  |
+| 8     | 2024_02_06_Batch_8  |
+| 13    | 2025_01_27_Batch_13 |
+| 14    | 2025_01_28_Batch_14 |
+| 15    | 2025_03_17_Batch_15 |
+| 16    | 2025_03_17_Batch_16 |
 
 Biological-replicate pairs used for benchmark averaging:
 B7+B8, B13+B14, B15+B16 (`config.BIOREP_PAIRS`).
@@ -312,9 +302,8 @@ Metadata_plate_map_name     str
 
 ## Bringing new embeddings
 
-This is an optional developer route, not automatic plug-in support. Published
-representations are already configured; new names need explicit admission,
-preprocessing and channel-selection checks.
+New representations require feature admission, preprocessing and channel
+selection to be configured and checked.
 
 - Raw embeddings contain cell identities/metadata and numeric feature columns.
   Check `REP_RAW_FILES` in `src/prot_loc_benchmark/config.py` for the expected
@@ -328,21 +317,16 @@ preprocessing and channel-selection checks.
   `REP_RAW_FILES`, `BENCHMARK_CHANNELS`, `get_feature_channels`, and downstream
   CLI selections. Channel-name substrings alone are not a registration API.
 - If starting from crops, use the appropriate `07`/`08` model-input and
-  metadata requirements. Training/export interfaces and new-representation
-  integration need their own checks; they were not exercised by the CPU
-  scoring example.
+  metadata requirements and verify the resulting identities and feature schema.
 
 ## Reproducibility
 
 - Both bundle and `--sample` downloads default to commit
   `74f63113a76b4a832285da308f3df2932266e456` of `anonymous-xyz96/MisLocus`.
-  `--revision <40-character-commit-sha>` overrides it; the downloader logs and
-  passes the SHA to `snapshot_download(revision=...)`. No fallback to main.
-- Validation inspected 42 Parquet schemas and hash-verified seven Batch 8
-  payloads against this revision. Small unchanged real-row subsets passed
-  CPU XGBoost, PA and HPA API checks. This is not a fresh-network full-pipeline
-  test, production calibration, GPU equivalence, or paper-result reproduction.
-- A dataset pin fixes the source selection, not the entire experiment. Retain
-  code/environment/annotation versions and backend/settings-matched controls.
-  It does not verify historical producer lineage or prevent mixing old local
-  files if a nonempty data directory is reused across revisions.
+  Use `--revision` with a full commit ID to select another version.
+  `PROT_LOC_BENCHMARK_HF_REPO` also selects a dataset; a different dataset
+  requires its own explicit `--revision`.
+- Record the dataset commit, code revision, environment lock, annotation
+  versions and scoring settings. Control calibration must match the scoring
+  backend and settings. Use a fresh `data/` directory when changing datasets
+  or versions so files from different releases are not mixed.

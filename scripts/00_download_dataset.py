@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Download the dataset bundle from Hugging Face.
 
-This is **Step 0** for any user starting from a fresh clone of the minimum
-branch. It mirrors the HF dataset repo ``anonymous-xyz96/MisLocus`` (override
-with ``--hf-repo`` or the ``PROT_LOC_BENCHMARK_HF_REPO`` env var) into
-``data/`` at a pinned commit and remaps to the pipeline layout. Published
-cleaned features need no preprocessing. Use --no-include-crops for scoring:
+Downloads ``anonymous-xyz96/MisLocus`` into ``data/`` at a pinned commit
+and remaps it to the pipeline layout. Select another dataset with --hf-repo
+or PROT_LOC_BENCHMARK_HF_REPO. Published cleaned features need no preprocessing.
+Use --no-include-crops to download features without crop archives:
 
   representations/{rep}/{batch}/features.parquet
       → data/interim/{rep}/{batch}/features.parquet (morphem → vit)
@@ -36,17 +35,17 @@ Usage:
     # the rest of the bundle. Files land at data/sample/.
     .pixi/envs/default/bin/python scripts/00_download_dataset.py --sample
 
-    # Subset a single rep + batch (e.g. for a smoke test). Crops are
-    # excluded by default in subset mode (override with --include-crops).
+    # One representation and batch (complete feature files, not a row sample).
+    # Crops are excluded unless --include-crops is supplied.
     .pixi/envs/default/bin/python scripts/00_download_dataset.py \\
         --rep morphem --batch 2024_02_06_Batch_8
 
     # Multiple reps / batches (comma-separated or repeated flags).
     .pixi/envs/default/bin/python scripts/00_download_dataset.py --rep cytoself,cellprofiler
 
-    # Alternate repos (including env-var overrides) require their own commit SHA.
+    # Another dataset with the same layout; replace its name and commit ID.
     .pixi/envs/default/bin/python scripts/00_download_dataset.py \\
-        --hf-repo myorg/my-dataset --revision <40-character-commit-sha> --no-include-crops
+        --hf-repo myorg/my-dataset --revision "<40-character-commit-sha>" --no-include-crops
 """
 from __future__ import annotations
 

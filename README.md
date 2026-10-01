@@ -71,9 +71,9 @@ To download all published representations and batches instead (a large transfer)
 Downloads use a pinned HF commit, not moving main. Use a fresh `data/` directory
 when changing repositories or revisions. See the
 [download and revision options](docs/dataset_bundle.md#reproducibility) for
-explicit overrides. These commands prepare inputs; they do not run benchmarks.
+version selection. These commands prepare inputs; they do not run benchmarks.
 Continue with [CPU scoring and script navigation](docs/dataset_bundle.md#run-cpu-scoring-on-published-features)
-for checked commands, output locations, and current CLI limitations.
+for commands, output locations, and input requirements.
 
 ## Benchmark workflow
 
@@ -93,8 +93,7 @@ uses reference proteins rather than the variant-comparison cohort.
 
 Task outputs are designed to include numerical tables, coverage and exclusion
 summaries, and provenance linking results to inputs and settings. Control
-calibration must match the scoring backend and settings. Paper-figure rendering
-is separate from the benchmark workflow.
+calibration must match the scoring backend and settings.
 
 ## Environments
 

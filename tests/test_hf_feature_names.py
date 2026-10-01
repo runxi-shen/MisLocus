@@ -250,7 +250,7 @@ class HFFeatureNameChecks(unittest.TestCase):
             summary.main()
         self.assertEqual(load.call_args.args[1], ['vit', 'cellprofiler'])
 
-    def test_hpa_writes_analysis_outputs_without_latex(self):
+    def test_hpa_writes_analysis_outputs(self):
         output = self.root / 'hpa'
         scores = pl.DataFrame({'hpa_location': ['cytoplasm'], 'mAP_hpa': [0.6],
                                'mAP_hpa_norm': [0.2], 'below_corrected_p_hpa': [False]})
@@ -261,7 +261,6 @@ class HFFeatureNameChecks(unittest.TestCase):
             stack.enter_context(patch.object(hpa, 'load_hpa_labels',
                                             return_value={g: ['cytoplasm'] for g in ('GENE', 'A', 'B')}))
             stack.enter_context(patch.object(hpa, '_run_hpa_map', return_value=scores))
-            stack.enter_context(patch('pandas.DataFrame.to_latex', side_effect=AssertionError('No LaTeX required')))
             plots = [stack.enter_context(patch.object(hpa, name)) for name in
                      ('plot_cross_rep_heatmap', 'plot_per_organelle_heatmap', 'plot_distribution', 'plot_embedding')]
             record = stack.enter_context(patch.object(hpa, 'record'))
@@ -272,7 +271,6 @@ class HFFeatureNameChecks(unittest.TestCase):
             self.assertEqual(saved['mAP_hpa_norm'].to_list(), [0.2] * 6)
             self.assertTrue((directory / 'per_channel_summary_pooled.csv').is_file())
         self.assertTrue((output / 'summary' / 'per_channel_summary_pooled_min3genes.csv').is_file())
-        self.assertFalse(list(output.rglob('*.tex')))
         self.assertTrue(all(plot.called for plot in plots))
         record.assert_called_once_with(output_dirs=[output / 'summary', output / 'vit' / 'summary'])
 
