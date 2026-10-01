@@ -1,25 +1,46 @@
-# MisLocus — companion repo
+# MisLocus
 
-Consume the published **MisLocus single-cell crop dataset** for
-protein-localization representation scoring. The shipped `features.parquet`
-files are already cleaned: **skip `06_preprocess_profiles.py` and do not
-normalize them again**. Crops, encoder weights, and training are optional.
+MisLocus benchmarks protein-localization representations using single-cell
+images and variant annotations. This repository includes feature preprocessing,
+model training and retraining, feature extraction, and downstream classification
+and benchmarking tools.
+
+You can start from **published features** or **single-cell images**:
+
+- **Published features:** download the precomputed `features.parquet` files and
+  use them directly for scoring. They are already cleaned—do not run
+  `06_preprocess_profiles.py` or normalize them again.
+- **Single-cell images:** use the training and extraction scripts to generate
+  features, then preprocess those raw features before scoring. These workflows
+  need their model-specific environments; they are not required to use the
+  published features.
+
+The quickstart below follows the published-feature route.
 
 ## What you get
 
-The dataset bundle (download separately, see below) ships into `data/`:
+### Included in this repository
 
-- **Seven representations** — CellProfiler, Cytoself, MorphEm, and the portable RBG / fine-tuned SubCell MAE and ViT models, under `data/interim/{rep}/{batch}/features.parquet`. Public `morphem` maps to local `vit`; both names are accepted by the downloader and scoring consumers.
-- **Crop manifest** — `data/interim/crop_manifest/{batch}/manifest.parquet` (one row per cell).
-- **QC'd single-cell crops** (optional) — `data/interim/single_cell_crops/{batch}/{allele}/*.npy` (128×128 uint16, 4 channels: DNA / GFP / AGP / Mito).
+- **Code:** scripts for preprocessing, training, extraction, classification,
+  and representation comparisons, with shared analysis functions in `src/`.
+- **Reference annotations:** HPA gene localizations and the ClinVar / dbNSFP /
+  pLDDT allele collection in `annotations/`. These do not need a separate download.
 
-Reference annotations (HPA gene-localization + ClinVar / dbNSFP / pLDDT
-allele collection) live in `annotations/` and are tracked in this repo
-(~9.7 MB total). They're consumed by `10_benchmark_clinvar.py` and
-`10b_benchmark_hpa.py` and don't need to be downloaded.
+### Available from the Hugging Face dataset
 
-See [`docs/dataset_bundle.md`](docs/dataset_bundle.md) for the full layout
-and the download script's CLI options.
+| Component | Contents |
+|-----------|----------|
+| Precomputed features | Seven representations: CellProfiler, Cytoself, MorphEm, and portable RBG / fine-tuned SubCell MAE and ViT. |
+| Crop manifests | Per-cell metadata for the image crops. |
+| Single-cell images | QC'd 128×128 crops with DNA, GFP, AGP, and Mito channels; optional when using published features. |
+
+Downloads are stored under `data/`. Feature files go to
+`data/interim/{rep}/{batch}/features.parquet`. MorphEm is named `morphem` on
+Hugging Face and stored locally as `vit`; the downloader and scoring tools
+accept either name.
+
+See the [dataset guide](docs/dataset_bundle.md) for download options and the
+complete directory layout.
 
 ## Quickstart
 
@@ -91,11 +112,3 @@ data/processed/benchmark/clinvar/full_dataset/summary_across_reps/
 The `cytoself` / `subcell` / `vit` envs only matter if you re-extract or
 retrain a representation from raw crops; they're not needed for the
 classification + benchmark workflow.
-
-## Adding a new representation
-
-The benchmark is a contract — anything that writes
-`data/interim/<myrep>/{batch}/features.parquet` with the right schema
-plugs in without touching `09 / 09c / 10 / 10b / 11`. See
-[`docs/dataset_bundle.md#adding-a-new-representation`](docs/dataset_bundle.md#adding-a-new-representation)
-for the integration recipe.
