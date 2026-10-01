@@ -1,32 +1,36 @@
 # MisLocus
 
-MisLocus benchmarks protein-localization representations using single-cell
-images and variant annotations. This repository includes feature preprocessing,
-model training and retraining, feature extraction, and downstream classification
-and benchmarking tools.
+MisLocus is a toolkit for benchmarking protein-localization representations
+using single-cell images and variant annotations. It brings together feature
+preprocessing, model training and retraining, feature extraction, and downstream
+analysis of variant effects and protein localization.
 
-You can start from **published features** or **single-cell images**:
+## Workflows
 
-- **Published features:** download the precomputed `features.parquet` files and
-  use them directly for scoring. They are already cleaned—do not run
-  `06_preprocess_profiles.py` or normalize them again.
-- **Single-cell images:** use the training and extraction scripts to generate
-  features, then preprocess those raw features before scoring. These workflows
-  need their model-specific environments; they are not required to use the
-  published features.
+The repository is designed around three workflows:
 
-The quickstart below follows the published-feature route.
+| Starting point | Workflow |
+|----------------|----------|
+| **Published features (default)** | Download cleaned features, validate cell identities and comparison cohorts, then score and benchmark representations. |
+| **New raw embeddings** | Apply quality control, representation-specific feature normalization and selection, then use the benchmark workflow. |
+| **Single-cell crops** | Prepare model inputs, optionally train or fine-tune an encoder, and extract embeddings for feature preprocessing and benchmarking. |
+
+Published `features.parquet` files are already cleaned. **Do not run
+`06_preprocess_profiles.py` or normalize them again.** Encoder training and
+extraction are optional; fitting XGBoost classifiers is part of downstream
+scoring, not encoder training. Image preparation and feature normalization are
+separate steps.
 
 ## What you get
 
 ### Included in this repository
 
-- **Code:** scripts for preprocessing, training, extraction, classification,
-  and representation comparisons, with shared analysis functions in `src/`.
+- **Code:** preprocessing, training, extraction, and benchmark scripts in
+  `scripts/`, with shared analysis functions in `src/`.
 - **Reference annotations:** HPA gene localizations and the ClinVar / dbNSFP /
-  pLDDT allele collection in `annotations/`. These do not need a separate download.
+  pLDDT allele collection in `annotations/`. No separate download is needed.
 
-### Available from the Hugging Face dataset
+### Available from the [Hugging Face dataset](https://huggingface.co/datasets/anonymous-xyz96/MisLocus)
 
 | Component | Contents |
 |-----------|----------|
@@ -34,81 +38,70 @@ The quickstart below follows the published-feature route.
 | Crop manifests | Per-cell metadata for the image crops. |
 | Single-cell images | QC'd 128×128 crops with DNA, GFP, AGP, and Mito channels; optional when using published features. |
 
-Downloads are stored under `data/`. Feature files go to
-`data/interim/{rep}/{batch}/features.parquet`. MorphEm is named `morphem` on
-Hugging Face and stored locally as `vit`; the downloader and scoring tools
-accept either name.
+Feature files are stored at `data/interim/{rep}/{batch}/features.parquet`.
+MorphEm is named `morphem` on Hugging Face and stored locally as `vit`; the
+downloader and scoring tools accept either name.
 
-See the [dataset guide](docs/dataset_bundle.md) for download options and the
-complete directory layout.
+See the [dataset guide](docs/dataset_bundle.md) for the complete layout and
+input formats.
 
-## Quickstart
+## Download published features
 
-From the repository root, with [Pixi](https://pixi.sh/install) installed:
+From the repository root on **Linux x86-64**, with [Pixi](https://pixi.sh/install)
+installed:
 
 ```bash
-# Dependencies only: no project-package installation or optional environments.
+# Install only the default dependencies, not the project package.
 pixi install --frozen -e default --skip prot-loc-benchmark
-export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 
-# All published features, manifests, and metadata at the pinned HF commit.
-# This can still be a large transfer; crop archives are excluded.
-.pixi/envs/default/bin/python scripts/00_download_dataset.py --no-include-crops
-
-# Alternatively, start with one representation and batch.
+# Start with one representation and batch; no crop archives are downloaded.
 .pixi/envs/default/bin/python scripts/00_download_dataset.py \
     --rep morphem --batch 2024_02_06_Batch_8
 ```
 
-Downloads default to the tested immutable revision documented in
-[`docs/dataset_bundle.md`](docs/dataset_bundle.md#reproducibility), not HF main.
-Override it with `--revision <commit-sha>`; alternate repositories require an
-explicit revision. Use a fresh `data/` directory when switching revisions.
-Identical features can be re-imported; different destination bytes are rejected.
-This prepares inputs, not comparison results or an exact synchronized mirror.
+The feature file will be at
+`data/interim/vit/2024_02_06_Batch_8/features.parquet`.
 
-Use the direct interpreter above to avoid Pixi automatically installing the
-project package. Existing Justfile recipes retain older environment/default
-choices and are not this dependency-only quickstart. `--sample` downloads only
-browseable crops, not scoring features; encoder weights are unnecessary here.
+To download all published representations and batches instead (a large transfer):
 
-## Pipeline
-
-Bounded real-data CPU checks cover all seven representations through native
-XGBoost, PA, and HPA scoring APIs. They do not certify a complete comparison
-workflow, production calibration/hit calls, GPU parity, or paper reproduction.
-Further downstream integration remains in progress. HPA reads reference-cell
-features directly; ClinVar and cross-representation summaries consume scores.
-
-```
-data/interim/{rep}/{batch}/features.parquet      ← shipped in the bundle
-            │
-   ┌────────┴────────┐
-   ▼                 ▼
-09_classify.py    09c_classify_PA.py
-(XGBoost AUROC)   (copairs mAP + p95 hit-call)
-            │
-            ▼
-data/processed/classification{,_PA}/{rep}/{batch}/
-            │
-   ┌────────┴────────┐
-   ▼                 ▼
-10_benchmark_clinvar.py    10b_benchmark_hpa.py
-            │
-            ▼
-11_summarize_across_reps.py
-            │
-            ▼
-data/processed/benchmark/clinvar/full_dataset/summary_across_reps/
+```bash
+.pixi/envs/default/bin/python scripts/00_download_dataset.py --no-include-crops
 ```
 
-## Pixi environments
+Downloads use a pinned HF commit, not moving main. Use a fresh `data/` directory
+when changing repositories or revisions. See the
+[download and revision options](docs/dataset_bundle.md#reproducibility) for
+explicit overrides. These commands prepare inputs; they do not run benchmarks.
 
-| Env       | Used for                                                 |
-|-----------|----------------------------------------------------------|
-| `default` | Downloads, CPU XGBoost (`09`), PA (`09c`), benchmarks (`10` / `10b` / `11`). |
-| `gpu`     | XGBoost classification (`09 --gpu`). Inherits `default` + adds the CUDA-12 system requirement so conda-forge resolves to GPU-enabled xgboost. |
+## Benchmark workflow
 
-The `cytoself` / `subcell` / `vit` envs only matter if you re-extract or
-retrain a representation from raw crops; they're not needed for the
-classification + benchmark workflow.
+The intended analysis flow is:
+
+```text
+Cleaned features + annotations → identity, schema, and cohort checks
+    ├─ XGBoost / phenotypic-activity scores + control calibration
+    │    ├─ Mislocalization hit calls
+    │    └─ Scores and hit calls → ClinVar / variant-effect predictor comparisons
+    └─ Reference-cell profiles + HPA labels → localization retrieval
+```
+
+Comparisons distinguish continuous scores from hit calls and account for
+biological replicates, missing observations, and multiple testing. HPA retrieval
+uses reference proteins rather than the variant-comparison cohort.
+
+Task outputs are designed to include numerical tables, coverage and exclusion
+summaries, and provenance linking results to inputs and settings. Control
+calibration must match the scoring backend and settings. Paper-figure rendering
+is separate from the benchmark workflow.
+
+## Environments
+
+| Environment | Purpose |
+|-------------|---------|
+| `default` | Feature downloads, preprocessing, CPU XGBoost, and benchmark analyses. |
+| `gpu` | GPU XGBoost scoring with a compatible CUDA setup. |
+| `cytoself`, `subcell`, `vit` | Model-specific image preparation, training, and extraction. |
+
+The default feature-based workflow does not require an encoder environment.
+Install model-specific environments only when working from images or retraining
+models.
