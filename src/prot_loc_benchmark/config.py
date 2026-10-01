@@ -66,6 +66,14 @@ ALL_PUBLIC_BATCHES = [
 
 REPRESENTATIONS = ["cellprofiler", "subcell", "cytoself", "vit"]
 
+# HF release alias; analysis directories and output labels remain unchanged.
+PUBLIC_TO_SOURCE_REP = {"morphem": "vit"}
+
+
+def canonical_representation(name: str) -> str:
+    """Resolve public feature names without renaming other analysis settings."""
+    return PUBLIC_TO_SOURCE_REP.get(name, name)
+
 # ============================================================================
 # PREPROCESSING CONFIGURATION
 # ============================================================================
@@ -361,6 +369,7 @@ def ensure_dirs() -> None:
 
 def get_batch_dir(batch_id: str, data_type: str) -> Path:
     """Get directory for a specific batch and representation type."""
+    data_type = canonical_representation(data_type)
     if data_type == "cellprofiler":
         return CELLPROFILER_DIR / batch_id
     elif data_type == "subcell":

@@ -18,6 +18,7 @@ from prot_loc_benchmark.classification.metrics import load_single_fold_metrics
 from prot_loc_benchmark.config import (
     ALLELE_COLLECTION_PATH,
     CLASSIFICATION_OUTPUT_DIR,
+    canonical_representation,
 )
 
 log = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def load_metrics(
         raise ValueError(f"Unknown fold_mode: {fold_mode!r} (expected 'full' or 't4-only')")
 
     frames = []
-    for rep in representations:
+    for rep in dict.fromkeys(map(canonical_representation, representations)):
         channels = benchmark_channels[rep]
         for pair_name, (batch_a, batch_b) in biorep_pairs.items():
             for batch in (batch_a, batch_b):

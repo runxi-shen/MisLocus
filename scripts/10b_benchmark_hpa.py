@@ -65,6 +65,7 @@ from prot_loc_benchmark.config import (
     HPA_GENE_LOCALIZATION_PATH,
     INTERIM_DIR,
     REP_FEATURE_FILES,
+    canonical_representation,
     load_hpa_labels,
 )
 from prot_loc_benchmark.viz.benchmark import significance_stars
@@ -98,13 +99,13 @@ def _load_dl(rep: str, batch: str) -> pl.DataFrame:
     """Load a DL representation's embeddings for one batch.
 
     Dispatches on REP_FEATURE_FILES to pick the right filename per rep
-    (embeddings.parquet, latent_codes.parquet, etc.). Returns an empty
-    DataFrame if the rep is unknown or the batch file is missing.
+    (features.parquet, embeddings.parquet, etc.). Returns an empty DataFrame
+    if the batch file is missing; rejects unknown representations.
     """
+    rep = canonical_representation(rep)
     fname = REP_FEATURE_FILES.get(rep)
     if fname is None:
-        log.error("Unknown representation: %s", rep)
-        return pl.DataFrame()
+        raise ValueError(f"Unknown representation: {rep}")
     path = INTERIM_DIR / rep / batch / fname
     if not path.exists():
         log.warning("Missing: %s", path)
@@ -550,6 +551,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--representations",
+        type=canonical_representation,
+        choices=sorted(REP_FEATURE_FILES),
+        help="Feature representations (morphem is an alias for vit)",
         nargs="+",
         default=["cellprofiler", "cytoself", "vit"],
     )
@@ -576,6 +580,7 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    args.representations = list(dict.fromkeys(args.representations))
     test_split = None if args.test_split == "none" else args.test_split
 
     logging.basicConfig(
