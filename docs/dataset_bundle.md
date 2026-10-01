@@ -87,10 +87,8 @@ After `snapshot_download`, paths are remapped:
 - `manifest/manifest_Batch_X.parquet` → `data/interim/crop_manifest/{full_batch}/manifest.parquet`
 - `single_cell_crops/{batch}/shard-NN.tar.gz` → extracted into `data/interim/single_cell_crops/{batch}/`
 
-HF-only repo metadata (`LICENSE`, `README.md`, `MisLocus_croissant.json`,
-`.gitattributes`) is removed at the end of the remap; the
-`.gitattributes` in particular would otherwise silently activate LFS
-smudge for every parquet in the working tree.
+HF repository metadata (`LICENSE`, `README.md`, `MisLocus_croissant.json`,
+`.gitattributes`) is removed from the download directory after remapping.
 
 Anything not under `data/` (notably the curated reference parquets in
 `annotations/`) is in-repo and does not come from either downloader.

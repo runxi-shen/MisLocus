@@ -13,10 +13,8 @@ Use --no-include-crops to download features without crop archives:
   single_cell_crops/{batch}/shard-NN.tar.gz
       → extracted into data/interim/single_cell_crops/{batch}/
 
-HF-only repo metadata (LICENSE, README.md, MisLocus_croissant.json,
-``.gitattributes``) is removed at the end of the remap; the
-``.gitattributes`` in particular would otherwise activate LFS smudge for
-every parquet in the working tree.
+HF repo metadata (LICENSE, README.md, MisLocus_croissant.json,
+``.gitattributes``) is removed from the download directory after remapping.
 
 Uses ``huggingface_hub.snapshot_download`` with an immutable revision.
 Identical feature re-imports are safe; differing destination bytes are rejected.
@@ -242,12 +240,7 @@ def _rmdir_if_empty_recursive(root: Path) -> None:
 
 
 def _cleanup_hf_root_noise() -> None:
-    """Remove HF repo-level files (LICENSE, README.md, etc.) that landed at data/.
-
-    The shipped ``.gitattributes`` is especially harmful — its
-    ``*.parquet filter=lfs ...`` rules apply to the whole working tree
-    once the file is present, silently breaking parquet diffs.
-    """
+    """Remove HF repository metadata from the download directory."""
     for noise in ("LICENSE", "README.md", "MisLocus_croissant.json", ".gitattributes"):
         p = DATA_DIR / noise
         if p.is_file():

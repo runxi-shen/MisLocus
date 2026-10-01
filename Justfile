@@ -10,7 +10,7 @@ set dotenv-load := true
 
 # Comma-separated batch list. Defaults to every public MisLocus batch shipped
 # in the dataset bundle. Override on the command line to subset, e.g.:
-#   BATCHES=2025_01_27_Batch_13,2025_01_28_Batch_14 just preprocess cellprofiler
+#   just BATCHES=2025_01_27_Batch_13,2025_01_28_Batch_14 preprocess cellprofiler
 BATCHES := "2024_01_23_Batch_7,2024_02_06_Batch_8,2025_01_27_Batch_13,2025_01_28_Batch_14,2025_03_17_Batch_15,2025_03_17_Batch_16"
 
 # Recipe defaults. Select representations present in your input data.

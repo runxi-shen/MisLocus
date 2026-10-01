@@ -1,10 +1,4 @@
-"""
-Configuration and path management for the benchmark pipeline.
-
-Minimum-dataset variant: assumes the QC'd cell-crop bundle has already been
-extracted into ``data/``. Server-specific paths, AWS download config, raw-image
-paths, and site-QC / crop-extraction parameters live in the upstream branch.
-"""
+"""Configuration and path management for the benchmark pipeline."""
 
 from __future__ import annotations
 
@@ -160,8 +154,7 @@ BIOREP_PAIRS: dict[str, tuple[str, str]] = {
 # Merged allele collection (ClinVar / structure / predictor annotations).
 ALLELE_COLLECTION_PATH = ANNOTATIONS_DIR / "full_allele_collection.parquet"
 
-# Channels to benchmark per representation. Add an entry here when registering
-# a new representation; see "Adding a new representation" in the README.
+# Channels to benchmark per representation.
 BENCHMARK_CHANNELS: dict[str, list[str]] = {
     "cellprofiler": ["DNA", "Mito", "AGP", "GFP", "Morph", "ALL"],
     "cytoself":     ["combined"],
