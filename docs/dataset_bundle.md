@@ -15,7 +15,7 @@ Two scripts, run independently:
 | `scripts/00_download_dataset.py`            | HF dataset repo `anonymous-xyz96/MisLocus`                         | Always (unless you already have features locally).     |
 | `scripts/00b_download_subcell_weights.py`   | CZI public S3 (`czi-subcell-public.s3.amazonaws.com/models/`)      | Only if you'll run `08a` / `08c` (SubCell extract / fine-tune). |
 
-Use the dependency-only setup in the [README](../README.md#quickstart), from
+Use the dependency-only setup in the [README](../README.md#download-published-features), from
 the repository root. The commands below use that environment directly.
 
 ### Dataset bundle — all features at the pinned revision
