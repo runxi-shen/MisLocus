@@ -140,7 +140,7 @@ benchmark-clinvar REPS=DEFAULT_REPS:
 benchmark-hpa REPS=DEFAULT_REPS:
     pixi run python scripts/10b_benchmark_hpa.py --representations {{REPS}}
 
-# Legacy benchmark chain; see the dataset guide for input and HPA export limitations.
+# Legacy benchmark chain; see the dataset guide for input and protocol requirements.
 benchmark-all REPS=DEFAULT_REPS:
     just benchmark-clinvar "{{REPS}}"
     just benchmark-hpa "{{REPS}}"

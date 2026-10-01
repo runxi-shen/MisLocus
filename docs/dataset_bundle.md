@@ -170,12 +170,27 @@ output above: do not rename those outputs to imply compatible evaluation.
 `11` consumes the matching `10` output directory, not features directly.
 These downstream comparisons were not validated by the scoring smoke.
 
-**HPA CLI limitation:** in the dependency-only default environment, `10b`
-computes its numerical summary tables but then fails at LaTeX export because
-Jinja2 is absent. Partial tables are not a successfully completed run; later
-plots and provenance recording are not reached. HPA scoring APIs have separate
-bounded checks, but the complete CLI needs a dependency/export fix before it
-can be recommended as a working example.
+### HPA reference-localization analysis
+
+HPA uses gene-level labels from the bundled
+`annotations/hpa_gene_localization_table.parquet`, not Lacoste variant labels
+or classification scores. Using the same CPU environment and `PYTHONPATH`:
+
+```bash
+# Choose a fresh output directory. Small null size is for a usage check only.
+.pixi/envs/default/bin/python scripts/10b_benchmark_hpa.py \
+    --representations morphem --batches 2024_02_06_Batch_8 \
+    --null-size 32 --max-workers 1 \
+    --output-dir data/processed/benchmark/hpa-smoke
+```
+
+Outputs include `summary/ap_scores_pooled.parquet`, per-channel CSV summaries,
+per-representation tables, PNG heatmaps/distributions/PCA plots, and provenance
+sidecars. The CLI was checked to completion on the same 840-row subset with
+six reference genes. **LaTeX export is not required or produced**; CSV/Parquet
+are the numerical results, and the plots are analysis aids, not a manuscript
+regeneration workflow. Generated results stay outside source control. As with
+PA, these small-null smoke settings do not establish production significance.
 
 Inspect current arguments without running an analysis:
 
