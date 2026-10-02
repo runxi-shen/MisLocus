@@ -1,5 +1,8 @@
 """Offline HF-name compatibility checks; no downloads, fitting or normalization."""
 import importlib.util
+import io
+import os
+import tarfile
 from contextlib import ExitStack
 from pathlib import Path
 import sys
@@ -113,6 +116,54 @@ class HFFeatureNameChecks(unittest.TestCase):
                 download.main()
             self.assertEqual(error.exception.code, 2)
             snapshot.assert_not_called()
+
+    def test_download_archives_confine_members_to_destination(self):
+        for function in (download.download_dataset_bundle, download.download_sample):
+            for kind in ('regular', 'traversal', 'symlink', 'hardlink', 'existing_symlink', 'fifo'):
+                with self.subTest(mode=function.__name__, kind=kind), tempfile.TemporaryDirectory(
+                    dir=self.root
+                ) as directory:
+                    root = Path(directory)
+                    data = root / 'data'
+                    interim = data / 'interim'
+                    if function is download.download_sample:
+                        archive = data / 'sample' / BATCH / 'crops.tar.gz'
+                        destination = archive.parent
+                    else:
+                        archive = data / 'single_cell_crops' / BATCH / 'shard-00.tar.gz'
+                        destination = interim / 'single_cell_crops' / BATCH
+                    archive.parent.mkdir(parents=True)
+                    outside = root / 'outside' / 'gfp.npy'
+                    outside.parent.mkdir()
+                    outside.write_bytes(b'preserve outside data')
+                    member = tarfile.TarInfo('GENE/gfp.npy')
+                    payload = b'synthetic crop bytes'
+                    if kind == 'traversal':
+                        member.name = os.path.relpath(outside, destination)
+                    elif kind in ('symlink', 'hardlink'):
+                        member.type = tarfile.SYMTYPE if kind == 'symlink' else tarfile.LNKTYPE
+                        member.linkname = os.path.relpath(outside, destination)
+                    elif kind == 'existing_symlink':
+                        destination.mkdir(parents=True, exist_ok=True)
+                        (destination / 'GENE').symlink_to(outside.parent, target_is_directory=True)
+                    elif kind == 'fifo':
+                        member.type = tarfile.FIFOTYPE
+                    member.size = len(payload) if member.isfile() else 0
+                    with tarfile.open(archive, 'w:gz') as tar:
+                        tar.addfile(member, io.BytesIO(payload) if member.isfile() else None)
+                    original = archive.read_bytes()
+                    with patch.object(download, 'DATA_DIR', data), patch.object(
+                        download, 'INTERIM_DIR', interim
+                    ), patch('huggingface_hub.snapshot_download'):
+                        if kind == 'regular':
+                            function(download.HF_REPO)
+                            self.assertEqual((destination / member.name).read_bytes(), payload)
+                            self.assertFalse(archive.exists())
+                        else:
+                            with self.assertRaises(tarfile.FilterError):
+                                function(download.HF_REPO)
+                            self.assertEqual(archive.read_bytes(), original)
+                    self.assertEqual(outside.read_bytes(), b'preserve outside data')
 
     def test_public_and_legacy_download_filters_use_public_directory(self):
         expected = download._build_allow_patterns(['morphem'], [BATCH], False)
