@@ -37,7 +37,7 @@ def release_inventory(root):
     return inventory
 
 
-def release_tables(root, inventory):
+def release_tables(root):
     frames = []
     for batch in ALL_PUBLIC_BATCHES:
         path = Path(root) / f'manifest/manifest_Batch_{batch.rsplit("_", 1)[1]}.parquet'
@@ -55,8 +55,6 @@ def release_tables(root, inventory):
         frame['split'] = frame.Metadata_Plate.map(split_for_plate)
         frames.append(frame)
     frame = pd.concat(frames, ignore_index=True)
-    if frame.groupby('Metadata_Plate').split.nunique().max() != 1:
-        raise ValueError('Physical plate split overlap')
     classes = sorted(frame.loc[frame.split == 'train', 'Metadata_gene_allele'].unique())
     class_index = {allele: idx for idx, allele in enumerate(classes)}
     unknown = set(frame.Metadata_gene_allele) - set(classes)

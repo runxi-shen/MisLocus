@@ -13,7 +13,9 @@ from prot_loc_benchmark.config import ALL_PUBLIC_BATCHES, SUBCELL_CHANNEL_FILES
 from prot_loc_benchmark.representations.subcell_allele_data import (
     AlleleBatchSampler, MisLocusSubCellDataset, collate_cells, fixed_validation, stratified_draw,
 )
-from prot_loc_benchmark.representations.subcell_manifest import add_plate_maps, align_crop_rows, sha256, split_for_plate
+from prot_loc_benchmark.representations.subcell_manifest import (
+    add_plate_maps, align_crop_rows, release_tables, sha256, split_for_plate,
+)
 
 
 def make_cohort(root, count=17):
@@ -79,6 +81,29 @@ class AlleleRegression(unittest.TestCase):
         wrong['Metadata_gene_allele'] = 'ALK_Thr1151Met'
         with self.assertRaisesRegex(ValueError, 'allele'):
             align_crop_rows(wrong, self.root / 'ALK')
+
+    def test_release_tables_keep_global_alleles_and_held_out_splits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'manifest').mkdir()
+            for batch in ALL_PUBLIC_BATCHES:
+                frame = self.frame.copy()
+                frame['Metadata_Plate'] = batch + '_P1T' + frame.Metadata_Plate.str[-1]
+                frame.loc[frame.Metadata_ObjectNumber == 11, 'Metadata_Plate'] = batch + '_P1T4'
+                path = root / 'manifest' / f'manifest_Batch_{batch.rsplit("_", 1)[1]}.parquet'
+                frame.to_parquet(path, index=False)
+            released, classes = release_tables(root)
+            self.assertEqual(classes, self.classes)
+            self.assertEqual(released.cell_id.nunique(), len(self.frame) * len(ALL_PUBLIC_BATCHES))
+            self.assertEqual(set(released.batch_id), set(ALL_PUBLIC_BATCHES))
+            self.assertTrue((released.groupby('Metadata_gene_allele').class_index.nunique() == 1).all())
+            multiplier = len(classes) * len(ALL_PUBLIC_BATCHES)
+            self.assertEqual(released.split.value_counts().to_dict(),
+                             {'train': 9 * multiplier, 'val': 2 * multiplier, 'test': multiplier})
+            frame.loc[frame.Metadata_ObjectNumber == 11, 'Metadata_gene_allele'] = 'EVAL_ONLY'
+            frame.to_parquet(path, index=False)
+            with self.assertRaisesRegex(ValueError, 'Evaluation alleles absent from training'):
+                release_tables(root)
 
     def test_plate_map_annotations_are_reconciled(self):
         with tempfile.TemporaryDirectory() as directory:
