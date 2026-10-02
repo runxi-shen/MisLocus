@@ -126,7 +126,7 @@ def align_crop_rows(released, base_path):
 def build_manifest(root, crops, output):
     """Validate a completed extraction and save immutable cohort + fixed validation IDs."""
     from .subcell_allele_data import fixed_validation
-    from .subcell_run import capture_source, invocation, code_fingerprint, verify_source
+    from prot_loc_benchmark.provenance import capture_source, invocation, code_fingerprint, verify_source
 
     root, crops, output = (Path(p).resolve() for p in (root, crops, output))
     if any(output.is_relative_to(p) for p in (root, crops)):
