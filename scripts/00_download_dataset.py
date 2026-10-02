@@ -221,7 +221,7 @@ def _remap_to_pipeline_layout() -> None:
             dst_dir.mkdir(parents=True, exist_ok=True)
             logger.info("  [crops] extracting %s → %s", src.relative_to(DATA_DIR), dst_dir.relative_to(DATA_DIR))
             with tarfile.open(src, "r:gz") as tar:
-                tar.extractall(dst_dir)
+                tar.extractall(dst_dir, filter="data")
             src.unlink()
         _rmdir_if_empty_recursive(crops_root)
 
@@ -285,7 +285,7 @@ def download_sample(hf_repo: str, force: bool = False, *, revision: str | None =
         dst_dir = src.parent  # data/sample/{batch}/
         logger.info("  [sample] extracting %s", src.relative_to(DATA_DIR))
         with tarfile.open(src, "r:gz") as tar:
-            tar.extractall(dst_dir)
+            tar.extractall(dst_dir, filter="data")
         src.unlink()
 
     _cleanup_hf_root_noise()
