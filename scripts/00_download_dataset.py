@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Download the dataset bundle from Hugging Face.
 
-This is **Step 0** for any user starting from a fresh clone of the minimum
-branch. It mirrors the HF dataset repo ``anonymous-xyz96/MisLocus`` (override
-with ``--hf-repo`` or the ``PROT_LOC_BENCHMARK_HF_REPO`` env var) into
-``data/`` at a pinned commit and remaps to the pipeline layout. Published
-cleaned features need no preprocessing. Use --no-include-crops for scoring:
+Downloads ``anonymous-xyz96/MisLocus`` into ``data/`` at a pinned commit
+and remaps it to the pipeline layout. Select another dataset with --hf-repo
+or PROT_LOC_BENCHMARK_HF_REPO. Published cleaned features need no preprocessing.
+Use --no-include-crops to download features without crop archives:
 
   representations/{rep}/{batch}/features.parquet
       → data/interim/{rep}/{batch}/features.parquet (morphem → vit)
@@ -14,10 +13,8 @@ cleaned features need no preprocessing. Use --no-include-crops for scoring:
   single_cell_crops/{batch}/shard-NN.tar.gz
       → extracted into data/interim/single_cell_crops/{batch}/
 
-HF-only repo metadata (LICENSE, README.md, MisLocus_croissant.json,
-``.gitattributes``) is removed at the end of the remap; the
-``.gitattributes`` in particular would otherwise activate LFS smudge for
-every parquet in the working tree.
+HF repo metadata (LICENSE, README.md, MisLocus_croissant.json,
+``.gitattributes``) is removed from the download directory after remapping.
 
 Uses ``huggingface_hub.snapshot_download`` with an immutable revision.
 Identical feature re-imports are safe; differing destination bytes are rejected.
@@ -36,17 +33,17 @@ Usage:
     # the rest of the bundle. Files land at data/sample/.
     .pixi/envs/default/bin/python scripts/00_download_dataset.py --sample
 
-    # Subset a single rep + batch (e.g. for a smoke test). Crops are
-    # excluded by default in subset mode (override with --include-crops).
+    # One representation and batch (complete feature files, not a row sample).
+    # Crops are excluded unless --include-crops is supplied.
     .pixi/envs/default/bin/python scripts/00_download_dataset.py \\
         --rep morphem --batch 2024_02_06_Batch_8
 
     # Multiple reps / batches (comma-separated or repeated flags).
     .pixi/envs/default/bin/python scripts/00_download_dataset.py --rep cytoself,cellprofiler
 
-    # Alternate repos (including env-var overrides) require their own commit SHA.
+    # Another dataset with the same layout; replace its name and commit ID.
     .pixi/envs/default/bin/python scripts/00_download_dataset.py \\
-        --hf-repo myorg/my-dataset --revision <40-character-commit-sha> --no-include-crops
+        --hf-repo myorg/my-dataset --revision "<40-character-commit-sha>" --no-include-crops
 """
 from __future__ import annotations
 
@@ -243,12 +240,7 @@ def _rmdir_if_empty_recursive(root: Path) -> None:
 
 
 def _cleanup_hf_root_noise() -> None:
-    """Remove HF repo-level files (LICENSE, README.md, etc.) that landed at data/.
-
-    The shipped ``.gitattributes`` is especially harmful — its
-    ``*.parquet filter=lfs ...`` rules apply to the whole working tree
-    once the file is present, silently breaking parquet diffs.
-    """
+    """Remove HF repository metadata from the download directory."""
     for noise in ("LICENSE", "README.md", "MisLocus_croissant.json", ".gitattributes"):
         p = DATA_DIR / noise
         if p.is_file():

@@ -1,22 +1,19 @@
-# Justfile for prot-loc-benchmark (minimal dataset companion)
-#
-# Quick tour:
-#   just download-sample     # ~1.2 GB browseable sample (8 alleles × 2 batches)
-#   just inspect-sample      # show what's in data/sample/
-#   just download-batch      # ~3 GB CellProfiler features for one batch
-#   just classify-batch      # XGBoost + PA mAP on that one batch
-#   just download-all        # full mirror of every rep × every batch
-#
-# Run `just` (no arguments) to see every recipe with its short description.
+# Convenience recipes for downloads and analysis.
+# See docs/dataset_bundle.md for direct CPU commands and input requirements.
+# These recipes use pixi run (which may install the project package), GPU
+# classification, and older representation defaults. `all` preprocesses inputs:
+# DO NOT use it on already-cleaned published features. `clean` deletes outputs.
+# `download-sample` supplies browseable crops, not a scoring fixture.
+# Run `just` (no arguments) to list recipes; inspect each before execution.
 
 set dotenv-load := true
 
 # Comma-separated batch list. Defaults to every public MisLocus batch shipped
 # in the dataset bundle. Override on the command line to subset, e.g.:
-#   BATCHES=2025_01_27_Batch_13,2025_01_28_Batch_14 just preprocess cellprofiler
+#   just BATCHES=2025_01_27_Batch_13,2025_01_28_Batch_14 preprocess cellprofiler
 BATCHES := "2024_01_23_Batch_7,2024_02_06_Batch_8,2025_01_27_Batch_13,2025_01_28_Batch_14,2025_03_17_Batch_15,2025_03_17_Batch_16"
 
-# Reps that flow through the cross-rep summary by default. Override per-call.
+# Recipe defaults. Select representations present in your input data.
 DEFAULT_REPS := "cellprofiler cytoself subcell_portable_bg_vit vit"
 
 # ============================================================================
@@ -27,12 +24,12 @@ DEFAULT_REPS := "cellprofiler cytoself subcell_portable_bg_vit vit"
 default:
     @just --list
 
-# Install all pixi environments
+# Full installation; not the README's dependency-only default setup.
 install:
     pixi install
 
 # ============================================================================
-# Showcase — the five commands you'll use 90% of the time
+# Legacy single-batch and download recipes
 # ============================================================================
 
 # Download the small browseable sample (~1.2 GB) into data/sample/{batch}/{allele}/.
@@ -47,7 +44,7 @@ inspect-sample:
 download-batch BATCH="2025_01_27_Batch_13" REP="cellprofiler":
     pixi run python scripts/00_download_dataset.py --rep {{REP}} --batch {{BATCH}}
 
-# Run XGBoost + phenotypic-activity mAP on one batch (default: cellprofiler + Batch_13). Requires `download-batch` first.
+# GPU XGBoost + PA on a complete batch. Requires downloaded features.
 classify-batch BATCH="2025_01_27_Batch_13" REP="cellprofiler":
     # CONDA_OVERRIDE_CUDA: lets pixi resolve the gpu env's `__cuda`
     # virtual package on hosts where it isn't auto-detected.
@@ -83,7 +80,7 @@ preprocess REP:
         pixi run python scripts/06_preprocess_profiles.py --representation {{REP}} --batch $batch
     done
 
-# Preprocess all DEFAULT_REPS in sequence.
+# Raw profiles/embeddings only: preprocess DEFAULT_REPS. Never use on published features.
 preprocess-all REPS=DEFAULT_REPS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -143,12 +140,12 @@ benchmark-clinvar REPS=DEFAULT_REPS:
 benchmark-hpa REPS=DEFAULT_REPS:
     pixi run python scripts/10b_benchmark_hpa.py --representations {{REPS}}
 
-# Run all benchmarks (ClinVar + HPA + cross-rep summary).
+# Legacy benchmark chain; see the dataset guide for input and protocol requirements.
 benchmark-all REPS=DEFAULT_REPS:
     just benchmark-clinvar "{{REPS}}"
     just benchmark-hpa "{{REPS}}"
 
-# preprocess-all + classify-all + benchmark-all.
+# Raw-input chain: preprocess-all + GPU classify-all + benchmark-all. Not for cleaned HF features.
 all REPS=DEFAULT_REPS:
     just preprocess-all "{{REPS}}"
     just classify-all "{{REPS}}"

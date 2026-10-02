@@ -35,11 +35,11 @@ transfer them again. This is input materialization, not an exact sync: stale
 files are not pruned and revision changes are not transactional. Use a fresh
 `data/` directory (preserve the previous one) when changing repo or revision.
 
-### Dataset bundle — smoke-test subset (one rep × one batch)
+### Dataset bundle — one representation or batch
 
-For a quick sanity check or partial materialization, restrict by
-representation and/or batch. Crop shards are excluded by default in
-subset mode:
+Restrict by representation and/or batch for partial materialization. This
+still downloads complete feature files, not a small row sample. Crop shards
+are excluded by default in subset mode:
 
 ```bash
 # One real-data scoring input; this does not run downstream comparisons.
@@ -55,15 +55,17 @@ subset mode:
     --batch 2025_01_27_Batch_13 --include-crops
 ```
 
-### Dataset bundle — override the HF repo
+### Downloading from another Hugging Face dataset (optional)
 
-Alternate repositories, including `PROT_LOC_BENCHMARK_HF_REPO` overrides, require
-an explicit full commit SHA belonging to that repository. Branches and tags
-are rejected; `repo@sha` is not supported syntax.
+The commands above use `anonymous-xyz96/MisLocus`. To download a different
+dataset with the same directory layout, use `--hf-repo` for its name and
+`--revision` for its version. Replace both example values below; the version
+must be a full 40-character lowercase commit ID from that dataset's history,
+not a branch or tag:
 
 ```bash
 .pixi/envs/default/bin/python scripts/00_download_dataset.py \
-    --hf-repo myorg/my-dataset --revision <40-character-commit-sha> --no-include-crops
+    --hf-repo myorg/my-dataset --revision "<40-character-commit-sha>" --no-include-crops
 ```
 
 ### SubCell pretrained weights
@@ -85,13 +87,130 @@ After `snapshot_download`, paths are remapped:
 - `manifest/manifest_Batch_X.parquet` → `data/interim/crop_manifest/{full_batch}/manifest.parquet`
 - `single_cell_crops/{batch}/shard-NN.tar.gz` → extracted into `data/interim/single_cell_crops/{batch}/`
 
-HF-only repo metadata (`LICENSE`, `README.md`, `MisLocus_croissant.json`,
-`.gitattributes`) is removed at the end of the remap; the
-`.gitattributes` in particular would otherwise silently activate LFS
-smudge for every parquet in the working tree.
+HF repository metadata (`LICENSE`, `README.md`, `MisLocus_croissant.json`,
+`.gitattributes`) is removed from the download directory after remapping.
 
 Anything not under `data/` (notably the curated reference parquets in
 `annotations/`) is in-repo and does not come from either downloader.
+
+## Run CPU scoring on published features
+
+After downloading features, run from the repository root in the dependency-only
+`default` environment. Unlike the downloader, the scoring scripts require `src`
+on the Python import path:
+
+```bash
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+export MISLOCUS_CLASSIFIER_BACKEND=cpu
+
+# One imaging channel; keep controls and variants in the same invocation.
+.pixi/envs/default/bin/python scripts/09_classify.py \
+    --batch 2024_02_06_Batch_8 --representation morphem \
+    --scope all --channels GFP
+```
+
+Outputs go to `data/processed/classification/vit/2024_02_06_Batch_8/`:
+`predictions.parquet`, `metrics.csv`, `classifier_info.csv`,
+`metrics_summary.csv`, and additional feature-importance/summary files.
+The summary uses controls from this invocation. Running `--scope control`
+followed by an allele-only run does **not** reuse the earlier calibration;
+it writes to the same directory. Use a fresh checkout/data directory for a
+separate run rather than overwriting results you need to retain.
+
+For a PA command with inexpensive permutation settings:
+
+```bash
+.pixi/envs/default/bin/python scripts/09c_classify_PA.py \
+    --batch 2024_02_06_Batch_8 --representation morphem \
+    --scope AGXT_Ala186Val --test-split t4 \
+    --null-size 32 --ctrl-null-size 32 --max-workers 1
+```
+
+This writes `mAP_results.parquet` and `mAP_control.parquet` under
+`data/processed/classification_PA/vit_t4/2024_02_06_Batch_8/`.
+`--test-split t4` restricts queries while retaining the comparison pool.
+Control-null computation stays enabled. The producer's `is_hit` uses p95;
+it is not the reporting rule that additionally requires within-batch BH.
+
+**The 32-draw setting is for checking execution, not significance or hit calling.**
+A complete batch can require substantial memory and time: `--scope` and
+`--channels` do not limit how many feature rows XGBoost loads, and PA retains
+its reference pool. `--sample` downloads browseable crops, not scoring features.
+
+### Script map and downstream prerequisites
+
+| Script | Reads → writes / purpose |
+|--------|--------------------------|
+| `00_download_dataset.py` | Pinned HF bundle → local features, manifests and optional crops. |
+| `00b_download_subcell_weights.py` | Optional pretrained SubCell encoder weights. |
+| `00c_inspect_sample.py` | Inspect `data/sample/`; no scoring. |
+| `01_prepare_cell_crops.py` | Inspect, unpack and verify already-cropped arrays; not segmentation. |
+| `06_preprocess_profiles.py` | Raw profiles/embeddings → cleaned features; **skip for published features**. |
+| `07a` / `07b` / `07c` / `07d` | Cytoself manifest preparation / training / embedding-format conversion / trained-model inference. |
+| `08a` / `08b` | Frozen SubCell / MorphEm embedding extraction. |
+| `08c` / `08d` | SubCell fine-tuning / fine-tuned embedding extraction. |
+| `09_classify.py` | Cleaned features → XGBoost predictions, metrics and control-calibrated summaries. |
+| `09c_classify_PA.py` | Cleaned features → PA scores and optional control-null outputs. |
+| `10_benchmark_clinvar.py` | XGBoost or PA scores + annotations → per-representation ClinVar summaries. |
+| `10b_benchmark_hpa.py` | Reference-cell features + HPA labels → localization retrieval; independent of variant scores. |
+| `11_summarize_across_reps.py` | Existing `10` summaries → cross-representation tables and plots. |
+
+For ClinVar, prepare the intended biological-replicate batches (see
+[batch identifiers](#batch-identifiers)) and select representations explicitly;
+one batch is not a complete paired comparison. `10` defaults to
+four-fold XGBoost summaries; `--fold-mode t4-only` selects T4-test metrics.
+`--pa` reads PA results instead, and ignores `--fold-mode`. The current PA
+reader looks under unsuffixed representation directories, not the `vit_t4`
+output above: do not rename those outputs to imply compatible evaluation.
+`11` consumes the matching `10` output directory, not features directly.
+
+### HPA reference-localization analysis
+
+HPA matches reference-cell profiles to gene-level labels in
+`annotations/hpa_gene_localization_table.parquet`. Use the same CPU environment
+and `PYTHONPATH`:
+
+```bash
+# Choose a fresh output directory. Small null size is for a usage check only.
+.pixi/envs/default/bin/python scripts/10b_benchmark_hpa.py \
+    --representations morphem --batches 2024_02_06_Batch_8 \
+    --null-size 32 --max-workers 1 \
+    --output-dir data/processed/benchmark/hpa-smoke
+```
+
+Outputs include `summary/ap_scores_pooled.parquet`, per-channel CSV summaries,
+per-representation tables, PNG heatmaps/distributions/PCA plots, and provenance
+sidecars. Generated results stay outside source control. As with PA, 32 null
+draws are for checking execution, not significance testing.
+
+Inspect current arguments without running an analysis:
+
+```bash
+.pixi/envs/default/bin/python scripts/10_benchmark_clinvar.py --help
+.pixi/envs/default/bin/python scripts/10b_benchmark_hpa.py --help
+.pixi/envs/default/bin/python scripts/11_summarize_across_reps.py --help
+```
+
+### GPU and optional model tools
+
+The CPU commands explicitly set `MISLOCUS_CLASSIFIER_BACKEND=cpu`; omitting
+`--gpu` alone does not force CPU because the default backend is automatic.
+GPU XGBoost uses the `gpu` environment (CUDA 12 requirement) and `09 --gpu`.
+Device selection can fall back to CPU: check the actual backend in the log.
+Never substitute CPU calibration for GPU scores, or reuse controls computed
+with different scoring settings.
+
+Encoder work uses the separate `cytoself`, `subcell` or `vit` environments,
+currently declaring CUDA 12.4. Their model-input preparation is not feature
+normalization. Use each script's input/label requirements; Cytoself and SubCell
+do not share one universal training protocol. No encoder installation,
+training or extraction is needed for the published-feature route.
+
+The `Justfile` retains legacy recipes: `pixi run` can install the project
+package, classification recipes select GPU, and `all` includes preprocessing.
+Use the direct commands above for dependency-only published-feature usage;
+`just all` is **not** its quickstart. Raw-feature preprocessing and destructive
+`clean` recipes are separate operations, not preparation for downloaded features.
 
 ## Layout after download
 
@@ -101,10 +220,8 @@ The seven published names are `cellprofiler`, `cytoself`, `morphem`,
 `morphem` and admit it to `interim/vit/`; outputs retain the internal `vit` label.
 MorphEm uses `ViT_{gfp,dna,agp,mito}_0..383`: GFP=384, Morph=1152, ALL=1536
 features. Cleaned feature counts for other representations can vary by batch.
-Representation names alone do not establish fine-tuned model/export lineage.
 
-The download script populates `data/` (everything under `data/` is
-gitignored — pure dataset payload):
+Downloaded inputs and generated results live under `data/`, which Git ignores:
 
 ```
 data/
@@ -146,14 +263,14 @@ HPA_GENE_LOCALIZATION_PATH}`.
 
 The bundle is keyed by MisLocus batch IDs:
 
-| Batch | ID                  | Notes      |
-|-------|---------------------|------------|
-| 7     | 2024_01_23_Batch_7  | A1R1 only  |
-| 8     | 2024_02_06_Batch_8  | A1R2 only  |
-| 13    | 2025_01_27_Batch_13 |            |
-| 14    | 2025_01_28_Batch_14 |            |
-| 15    | 2025_03_17_Batch_15 |            |
-| 16    | 2025_03_17_Batch_16 |            |
+| Batch | ID                 |
+|-------|--------------------|
+| 7     | 2024_01_23_Batch_7  |
+| 8     | 2024_02_06_Batch_8  |
+| 13    | 2025_01_27_Batch_13 |
+| 14    | 2025_01_28_Batch_14 |
+| 15    | 2025_03_17_Batch_15 |
+| 16    | 2025_03_17_Batch_16 |
 
 Biological-replicate pairs used for benchmark averaging:
 B7+B8, B13+B14, B15+B16 (`config.BIOREP_PAIRS`).
@@ -181,95 +298,33 @@ Metadata_Control            str   # "Exp" | "cPC" | "NC" | "PC" | "TC"
 Metadata_plate_map_name     str
 ```
 
-## Adding a new representation
+## Bringing new embeddings
 
-The pipeline is contract-based: anything that writes a parquet matching the
-schema below at the right path can be plugged in.
+New representations require feature admission, preprocessing and channel
+selection to be configured and checked.
 
-### 1. Write your extraction script
-
-Create `scripts/08x_extract_<myrep>_embeddings.py`. The cleanest template is
-`scripts/08b_extract_vit_embeddings.py` (single-pass DataLoader → frozen ViT
-→ parquet writer). Your script must:
-
-- Read crops from `data/interim/single_cell_crops/{batch}/{allele}/{channel}.npy`.
-- Read cell ordering from `data/interim/crop_manifest/{batch}/manifest.parquet`.
-- Run your model and produce one feature vector per cell.
-- Write `data/interim/<myrep>/{batch}/embeddings.parquet` containing:
-  - **All 10 `Metadata_*` columns** listed above.
-  - **Your feature columns** — any names. If you want per-imaging-channel
-    splits to fall out automatically (see step 3), include the channel name
-    in the column name (e.g. `<myrep>_GFP_0042`).
-
-### 2. Register the rep in `config.py`
-
-In `src/prot_loc_benchmark/config.py`, add three entries:
-
-```python
-REP_FEATURE_FILES["<myrep>"]   = "features.parquet"
-REP_RAW_FILES["<myrep>"]       = "embeddings.parquet"
-BENCHMARK_CHANNELS["<myrep>"]  = ["EMBED"]   # or ["GFP", "DNA", "AGP", "Mito", "Morph", "ALL"]
-```
-
-The `BENCHMARK_CHANNELS` value picks which channel splits the classifier
-will train on. `EMBED` (single channel containing all features) is the
-default for opaque embeddings.
-
-### 3. (Optional) Extend channel splitting
-
-If your features have internal structure beyond per-imaging-channel
-(e.g. Cytoself's `global` / `spectrum` / `combined` split), add a branch to
-`get_feature_channels` in
-`src/prot_loc_benchmark/classification/channels.py`.
-
-### 4. (Optional) Add a pixi env
-
-If your model needs an isolated PyTorch / CUDA stack, mirror the
-`[tool.pixi.feature.vit]` block in `pyproject.toml`. Otherwise reuse
-`default`.
-
-### 5. Run the pipeline (optional raw-feature producer route)
-
-These older producer commands require the relevant model environments; they
-are not the dependency-only published-feature quickstart. Skip extraction and
-step 06 entirely when using the cleaned HF bundle.
-
-```bash
-pixi run -e <env> python scripts/08x_extract_<myrep>_embeddings.py --batch <batch>
-pixi run python scripts/06_preprocess_profiles.py --representation <myrep> --batch <batch>
-pixi run -e gpu python scripts/09_classify.py     --batch <batch> --representation <myrep> --gpu
-pixi run python scripts/09c_classify_PA.py        --batch <batch> --representation <myrep>
-# After running across all batches in BIOREP_PAIRS:
-pixi run python scripts/10_benchmark_clinvar.py
-pixi run python scripts/10b_benchmark_hpa.py
-pixi run python scripts/11_summarize_across_reps.py   # picks up <myrep> automatically
-```
-
-### Notes
-
-- **If you only have pre-computed embeddings (no extraction needed):** skip
-  step 1 and write the parquet directly. Steps 2–5 still apply.
-- **If your model needs training from crops:** mirror `07a_preprocess_cytoself.py`
-  (manifest builder) + `07b_train_cytoself.py` (training loop). These are
-  decoupled from extraction — only step 1 (the extraction script) interfaces
-  with the rest of the pipeline.
-- **Pre-computed `features.parquet`?** If you've already done plate
-  normalization and feature selection externally, write your output as
-  `data/interim/<myrep>/{batch}/features.parquet` and skip step 06. Make
-  sure the columns match what the classifier expects (`Metadata_*` + numeric
-  features).
+- Raw embeddings contain cell identities/metadata and numeric feature columns.
+  Check `REP_RAW_FILES` in `src/prot_loc_benchmark/config.py` for the expected
+  filename; it is not universally `embeddings.parquet`.
+- `06_preprocess_profiles.py` separates CellProfiler feature selection from
+  learned-embedding preprocessing. Verify identities, feature order and QC
+  assumptions before running it once, in a fresh output location.
+- Already-cleaned `features.parquet` skips `06`; a filename alone does not
+  prove that normalization or cell/feature QC has been performed correctly.
+- New representation names require reviewing `REP_FEATURE_FILES`,
+  `REP_RAW_FILES`, `BENCHMARK_CHANNELS`, `get_feature_channels`, and downstream
+  CLI selections. Channel-name substrings alone are not a registration API.
+- If starting from crops, use the appropriate `07`/`08` model-input and
+  metadata requirements and verify the resulting identities and feature schema.
 
 ## Reproducibility
 
 - Both bundle and `--sample` downloads default to commit
   `74f63113a76b4a832285da308f3df2932266e456` of `anonymous-xyz96/MisLocus`.
-  `--revision <40-character-commit-sha>` overrides it; the downloader logs and
-  passes the SHA to `snapshot_download(revision=...)`. No fallback to main.
-- Validation inspected 42 Parquet schemas and hash-verified seven Batch 8
-  payloads against this revision. Small unchanged real-row subsets passed
-  CPU XGBoost, PA and HPA API checks. This is not a fresh-network full-pipeline
-  test, production calibration, GPU equivalence, or paper-result reproduction.
-- A dataset pin fixes the source selection, not the entire experiment. Retain
-  code/environment/annotation versions and backend/settings-matched controls.
-  It does not verify historical producer lineage or prevent mixing old local
-  files if a nonempty data directory is reused across revisions.
+  Use `--revision` with a full commit ID to select another version.
+  `PROT_LOC_BENCHMARK_HF_REPO` also selects a dataset; a different dataset
+  requires its own explicit `--revision`.
+- Record the dataset commit, code revision, environment lock, annotation
+  versions and scoring settings. Control calibration must match the scoring
+  backend and settings. Use a fresh `data/` directory when changing datasets
+  or versions so files from different releases are not mixed.

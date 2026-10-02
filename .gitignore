@@ -1,3 +1,6 @@
+# Downloaded datasets and generated analysis outputs (annotations live separately).
+data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

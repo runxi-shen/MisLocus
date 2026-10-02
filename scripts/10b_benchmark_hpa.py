@@ -29,12 +29,11 @@ Cross-representation:
     summary/per_channel_summary_pooled.csv
     summary/per_channel_summary_pooled_min3genes.csv  — same metrics restricted
         to organelles with ≥3 HPA-annotated genes
-    summary/per_channel_summary_pooled_min3genes.tex  — LaTeX version
     summary/cross_rep_heatmap.png
 
 Inputs:
     CellProfiler: data/interim/cellprofiler/{batch}/features.parquet
-    DL reps:      data/interim/{rep}/{batch}/embeddings.parquet
+    DL reps:      data/interim/{rep}/{batch}/features.parquet
     HPA table:    annotations/hpa_gene_localization_table.parquet
 """
 
@@ -96,7 +95,7 @@ def _load_cellprofiler(batch: str) -> pl.DataFrame:
 
 
 def _load_dl(rep: str, batch: str) -> pl.DataFrame:
-    """Load a DL representation's embeddings for one batch.
+    """Load a DL representation's feature table for one batch.
 
     Dispatches on REP_FEATURE_FILES to pick the right filename per rep
     (features.parquet, embeddings.parquet, etc.). Returns an empty DataFrame
@@ -712,24 +711,6 @@ def main() -> None:
     results.write_parquet(str(summary_dir / "ap_scores_pooled.parquet"))
     summary.write_csv(summary_dir / "per_channel_summary_pooled.csv")
     summary_min3.write_csv(summary_dir / "per_channel_summary_pooled_min3genes.csv")
-
-    latex_pd = summary_min3.to_pandas()
-    for c in ("representation", "channel"):
-        latex_pd[c] = latex_pd[c].astype(str).str.replace("_", r"\_", regex=False)
-    latex_pd.columns = [c.replace("_", r"\_") for c in latex_pd.columns]
-    latex_str = latex_pd.to_latex(
-        index=False,
-        float_format="%.3f",
-        escape=False,
-        caption=(
-            "HPA phenotypic consistency per representation and channel, "
-            "restricted to organelles with at least 3 HPA-annotated genes. "
-            "Per-organelle mAP scores are aggregated across qualifying organelles; "
-            "pct sig is the fraction with BH-corrected p<0.05."
-        ),
-        label="tab:hpa_consistency_min3",
-    )
-    (summary_dir / "per_channel_summary_pooled_min3genes.tex").write_text(latex_str)
 
     plot_cross_rep_heatmap(summary, summary_dir)
     plot_per_organelle_heatmap(results, summary_dir, loc_counts=loc_counts)
