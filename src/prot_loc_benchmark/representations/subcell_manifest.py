@@ -84,7 +84,7 @@ def add_plate_maps(frame, root, inventory):
         tables.append(mapping)
     result = frame.merge(pd.concat(tables), on=['batch_id', 'Metadata_Plate'], how='left',
                          validate='many_to_one', suffixes=('_existing', ''))
-    if len(result) != len(frame) or result.Metadata_plate_map_name.isna().any():
+    if result.Metadata_plate_map_name.isna().any():
         raise ValueError('Missing canonical plate-map annotation; refusing to drop cells')
     if 'Metadata_plate_map_name_existing' in result:
         existing = result.pop('Metadata_plate_map_name_existing')
