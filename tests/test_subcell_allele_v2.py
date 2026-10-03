@@ -23,7 +23,8 @@ from prot_loc_benchmark.representations.subcell_manifest import (
 )
 from prot_loc_benchmark.representations.subcell_protocol import model_config
 from prot_loc_benchmark.representations.subcell_training import (
-    AlleleDataModule, allele_metrics, lr_factor, setup_transforms,
+    AlleleDataModule, SubCellAlleleModule, allele_metrics, load_pretrained_weights,
+    enable_checkpointing, lr_factor, optimizer_groups, setup_transforms,
 )
 
 
@@ -294,6 +295,45 @@ class AlleleRegression(unittest.TestCase):
             opt.step()
             scheduler.step()
 
+    def test_detached_probe_mae_tokens_losses_decay_and_reload(self):
+        for family in ('mae', 'vit'):
+            with self.subTest(family=family):
+                model = SubCellAlleleModule(tiny_components(family), list(self.classes), {}, self.root, augment=False)
+                image = torch.rand(4, 4, 32, 32)
+                encoded, features, logits = model(image, .25 if family == 'mae' else 0)
+                torch.nn.functional.cross_entropy(logits, torch.tensor([0, 0, 1, 1])).backward()
+                self.assertTrue(all(p.grad is None for p in model.encoder.parameters()))
+                self.assertTrue(all(p.grad is None for p in model.pool_model.parameters()))
+                self.assertTrue(any(p.grad is not None for p in model.online_finetuner.parameters()))
+                groups = optimizer_groups(model)
+                self.assertEqual(set(g['weight_decay'] for g in groups), {0, .01, .05})
+                if family == 'mae':
+                    embeddings = model.encoder.embeddings
+                    for ratio, tokens in ((.25, 588), (0, 784)):
+                        kept, mask, _ = embeddings.random_masking(torch.zeros(2, 784, 16), mask_ratio=ratio)
+                        self.assertEqual(kept.shape[1], tokens)
+                        self.assertTrue((mask.sum(1) == 784 - tokens).all())
+                enable_checkpointing(model)
+                model.log = lambda *args, **kwargs: None
+                model.all_gather = lambda tensor, **kwargs: tensor
+                training_images = image.repeat(32, 1, 1, 1)
+                loss = model.training_step({'image': training_images, 'view2': training_images.clone(),
+                                            'allele': torch.arange(16).repeat_interleave(8),
+                                            'cell_index': torch.arange(128)}, 0)
+                self.assertTrue(torch.isfinite(loss))
+                loss.backward()
+                self.assertTrue(any(p.grad is not None for p in model.encoder.parameters()))
+                checkpoint = self.root / f'{family}.pth'
+                state = {f'{name}.{k}': v for name in ('encoder', 'pool_model')
+                         for k, v in getattr(model, name).state_dict().items()}
+                torch.save(state, checkpoint)
+                with self.assertRaisesRegex(ValueError, 'SHA256 mismatch'):
+                    load_pretrained_weights(model, checkpoint, '0' * 64)
+                load_pretrained_weights(model, checkpoint, sha256(checkpoint))
+                state['unexpected.weight'] = torch.ones(1)
+                torch.save(state, checkpoint)
+                with self.assertRaisesRegex(ValueError, 'keys differ'):
+                    load_pretrained_weights(model, checkpoint, sha256(checkpoint))
 
     def test_validation_deduplicates_and_omits_unsupported(self):
         probs = np.array([[.8, .15, .05], [.1, .8, .1], [.4, .5, .1]])
@@ -319,6 +359,18 @@ class AlleleRegression(unittest.TestCase):
         self.assertTrue(torch.equal(state, torch.get_rng_state()))
         self.assertEqual(mask.count_nonzero().item(), 0)
         self.assertTrue(torch.equal(restore, torch.arange(784).expand(2, -1)))
+
+    def test_selection_logs_the_same_float64_value_as_json(self):
+        model = SubCellAlleleModule(tiny_components('vit'), list(self.classes), {}, self.root, augment=False)
+        model._trainer = SimpleNamespace(world_size=1, sanity_checking=False, is_global_zero=False,
+                                         datamodule=SimpleNamespace(val_data=SimpleNamespace(positions=[0, 1])))
+        model.validation_outputs = [(torch.tensor([0, 1]), torch.tensor([0, 1]),
+                                     torch.tensor([[.9, .1], [.2, .8]]), torch.tensor([.1, .2]))]
+        logged = {}
+        model.log = lambda name, value, **kwargs: logged.update({name: value})
+        model.on_validation_epoch_end()
+        self.assertIsInstance(logged['val/macro_ap'], torch.Tensor)
+        self.assertEqual(logged['val/macro_ap'].dtype, torch.float64)
 
 
 if __name__ == '__main__':
