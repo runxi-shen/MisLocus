@@ -58,7 +58,7 @@ class ProbeOutputChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / 'gather.json'
             command = [sys.executable, '-m', 'torch.distributed.run', '--standalone',
-                       '--nproc-per-node=2', '--module', 'test_subcell_probe_output', '--claim', str(report)]
+                       '--nproc-per-node=2', str(Path(__file__).resolve()), '--claim', str(report)]
             for expected in ('claimed', 'refused'):
                 if expected == 'refused':
                     report.write_text('historical success')
