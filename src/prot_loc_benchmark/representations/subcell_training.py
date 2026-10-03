@@ -1,22 +1,32 @@
-"""Protocol-v2 training helpers; vendored architectures, projectors and losses unchanged.
+"""Protocol-v2 Lightning loop; vendored architectures, projectors and losses unchanged.
 
 The HPA localization training modules are intentionally not reused: MisLocus uses
 integer canonical allele CE targets, a fixed selector, and native step scheduling.
 """
 from __future__ import annotations
 
+import json
+import random
+import time
+import uuid
 from functools import partial
+from pathlib import Path
 
 import lightning as L
 import numpy as np
 import torch
+import torch.distributed as dist
+import torch.nn.functional as F
+from torch import nn
 from sklearn.metrics import average_precision_score
 from timm.optim.optim_factory import param_groups_weight_decay
 from torch.utils.data import DataLoader, DistributedSampler, Subset
 from torch.utils.checkpoint import checkpoint
 
+from prot_loc_benchmark.config import SUBCELL_SCALE_FACTOR
+from prot_loc_benchmark.preprocessing.subcell import SubCellPreprocessor
+from prot_loc_benchmark.provenance import invocation, save_json, sha256
 from .subcell_allele_data import AlleleBatchSampler, MisLocusSubCellDataset, collate_cells
-from .subcell_manifest import sha256
 
 
 def setup_transforms():
@@ -163,3 +173,260 @@ class AlleleDataModule(L.LightningDataModule):
         sampler = DistributedSampler(dataset, num_replicas=self.world_size, rank=self.global_rank,
                                      shuffle=False, drop_last=False)
         return DataLoader(dataset, batch_size=16, sampler=sampler, **self._loader_args())
+
+
+class SubCellAlleleModule(L.LightningModule):
+    def __init__(self, components, categories, identity, output_dir, *, augment=True):
+        super().__init__()
+        self.encoder = components.get('encoder', components.get('vit_model'))
+        self.decoder = components.get('decoder')
+        self.pool_model = components['pool_model']
+        self.ssl_model = components.get('ssl_model')
+        self.supcon_model = components['supcon_model']
+        dim = self.pool_model.out_dim
+        self.online_finetuner = nn.Sequential(nn.Dropout(.5), nn.Linear(dim, dim // 2), nn.ReLU(),
+                                             nn.Dropout(.5), nn.Linear(dim // 2, len(categories)))
+        self.categories, self.identity, self.output_dir = categories, identity, Path(output_dir)
+        self.preprocess = SubCellPreprocessor(scale_factor=SUBCELL_SCALE_FACTOR)
+        self.geometry, self.intensity = setup_transforms() if augment else (nn.Identity(), nn.Identity())
+        self.validation_outputs = []
+        self.constant_cells = set()
+        self.pending_rng = None
+        self.epoch_cells, self.loss_sums = [], {}
+        self.pass_started = None
+        self.validation_seconds = 0.
+
+    def forward(self, images, mask_ratio=0.):
+        kwargs = {'mask_ratio': mask_ratio, 'object_mask': None} if self.decoder is not None else {}
+        encoded = self.encoder(images, output_attentions=False, **kwargs)
+        pooled, _ = self.pool_model(encoded.last_hidden_state)
+        return encoded, pooled, self.online_finetuner(pooled.detach())
+
+    def on_after_batch_transfer(self, batch, dataloader_idx):
+        if batch['mask'] is not None:
+            raise ValueError('Cell masks are forbidden')
+        images = self.preprocess(batch['image'])
+        constant = images.amax((1, 2, 3)) == images.amin((1, 2, 3))
+        self.constant_cells.update(batch['cell_index'][constant].cpu().tolist())
+        if self.training:
+            first, second = self.geometry(images.clone()), self.geometry(images.clone())
+            if self.decoder is None:
+                first = self.intensity(first)
+            second = self.intensity(second)
+        else:
+            first, second = images, None
+        return {**batch, 'image': first, 'view2': second}
+
+    def training_step(self, batch, batch_idx):
+        images, second, labels = batch['image'], batch['view2'], batch['allele']
+        if labels.dtype != torch.long or labels.ndim != 1:
+            raise ValueError('Allele CE requires integer class targets')
+        encoded, z1, logits1 = self(images, .25 if self.decoder is not None else 0.)
+        _, z2, logits2 = self(second, 0.)
+        gathered1 = self.all_gather(z1, sync_grads=True).reshape(-1, z1.shape[-1])
+        gathered2 = self.all_gather(z2, sync_grads=True).reshape(-1, z2.shape[-1])
+        gathered_labels = self.all_gather(labels).reshape(-1)
+        global_ids = self.all_gather(batch['cell_index']).reshape(-1)
+        groups, counts = torch.unique(gathered_labels, return_counts=True)
+        if (gathered1.shape[0] != 128 or gathered2.shape[0] != 128 or len(global_ids.unique()) != 128
+                or len(groups) != 16 or not torch.all(counts == 8)):
+            raise ValueError('Expected exactly 16 distinct alleles × 8 distinct cells globally')
+        self.epoch_cells.extend(batch['cell_index'].cpu().tolist())
+        allele_loss = self.supcon_model(gathered1, gathered2, gathered_labels)
+        probe_loss = (F.cross_entropy(logits1, labels) + F.cross_entropy(logits2, labels)) / 2
+        loss = allele_loss + probe_loss
+        losses = {'allele_supcon': allele_loss, 'probe_ce': probe_loss}
+        if self.decoder is not None:
+            cell_loss = self.ssl_model(gathered1, gathered2)
+            prediction = self.decoder(encoded.last_hidden_state, encoded.ids_restore).logits
+            p = self.encoder.config.patch_size
+            b, c, h, w = images.shape
+            target = images.reshape(b, c, h // p, p, w // p, p)
+            target = torch.einsum('nchpwq->nhwpqc', target).reshape(b, -1, p * p * c)
+            target = (target - target.mean(-1, keepdim=True)) / (target.var(-1, keepdim=True) + 1e-6).sqrt()
+            reconstruction = ((prediction - target).square().mean(-1) * encoded.mask).sum() / encoded.mask.sum()
+            loss = reconstruction + cell_loss + .1 * allele_loss + probe_loss
+            losses.update(reconstruction=reconstruction, cell_contrastive=cell_loss)
+        if not torch.isfinite(loss):
+            raise FloatingPointError('Nonfinite training loss')
+        losses['total'] = loss
+        for name, value in losses.items():
+            self.log('train/' + name, value, sync_dist=True)
+            self.loss_sums[name] = self.loss_sums.get(name, 0.) + float(value.detach())
+        return loss
+
+    def configure_optimizers(self):
+        steps = len(self.trainer.datamodule.train_sampler)
+        total = int(self.trainer.estimated_stepping_batches)
+        if total != 100 * steps or self.trainer.accumulate_grad_batches != 1:
+            raise ValueError(f'Post-sharding schedule mismatch: {total} != 100 * {steps}')
+        self.steps_per_pass = steps
+        groups = optimizer_groups(self)
+        optimizer = torch.optim.AdamW(groups, lr=1e-4 * 128 / 256, betas=(.9, .95), eps=1e-8)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda u: lr_factor(u, total, 5 * steps))
+        if self.trainer.is_global_zero:
+            save_json(self.output_dir / 'optimizer.json', {
+                'steps_per_pass': steps, 'total_updates': total, 'warmup_updates': 5 * steps,
+                'groups': [{'name': g['name'], 'weight_decay': g['weight_decay'],
+                            'parameters': sum(p.numel() for p in g['params'])} for g in groups]})
+        return {'optimizer': optimizer, 'lr_scheduler': {'scheduler': scheduler, 'interval': 'step'}}
+
+    def on_before_optimizer_step(self, optimizer):
+        norm = torch.nn.utils.clip_grad_norm_(self.parameters(), float('inf'), error_if_nonfinite=True)
+        self.max_pre_clip = max(self.max_pre_clip, float(norm))
+        self.log('train/grad_norm_before_clip', norm)
+        self.log('train/lr_used', optimizer.param_groups[0]['lr'])
+
+    def configure_gradient_clipping(self, optimizer, gradient_clip_val=None, gradient_clip_algorithm=None):
+        self.clip_gradients(optimizer, gradient_clip_val=gradient_clip_val,
+                            gradient_clip_algorithm=gradient_clip_algorithm)
+        norm = torch.nn.utils.clip_grad_norm_(self.parameters(), float('inf'), error_if_nonfinite=True)
+        if norm > 1.00001:
+            raise FloatingPointError('Global gradient norm exceeds the protocol clip')
+        self.max_post_clip = max(self.max_post_clip, float(norm))
+        self.log('train/grad_norm_after_clip', norm)
+
+    def on_fit_start(self):
+        from .subcell_run import runtime_info
+        attempt = self.trainer.strategy.broadcast(uuid.uuid4().hex if self.global_rank == 0 else None)
+        self.attempt_dir = self.output_dir / 'attempts' / attempt
+        if self.trainer.is_global_zero:
+            self.attempt_dir.mkdir(parents=True, exist_ok=False)
+            save_json(self.attempt_dir / 'start.json', {
+                **invocation(), 'identity': self.identity, 'runtime': runtime_info(),
+                'resume_checkpoint': str(self.trainer.ckpt_path) if self.trainer.ckpt_path else None,
+                'resume_sha256': sha256(self.trainer.ckpt_path) if self.trainer.ckpt_path else None,
+                'initialization': {'pretrained': ['encoder', 'pool_model'],
+                                   'new': ['online_finetuner', 'supcon_model'] +
+                                          (['decoder', 'ssl_model'] if self.decoder is not None else [])}})
+        self.trainer.strategy.barrier()
+
+    def on_train_epoch_start(self):
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize(self.device)
+            torch.cuda.reset_peak_memory_stats(self.device)
+            if self.trainer.world_size > 1 and not any(isinstance(m, nn.SyncBatchNorm) for m in self.modules()):
+                raise RuntimeError('Distributed projectors require SyncBatchNorm during fitting')
+        self.pass_started = time.perf_counter()
+        self.validation_seconds = 0.
+        self.epoch_cells, self.loss_sums = [], {}
+        self.max_pre_clip = self.max_post_clip = 0.
+        self.pass_start_step = self.global_step
+        self.start_samples = parameter_samples(self)
+
+    def on_train_epoch_end(self):
+        # A validation-end checkpoint resumes by closing the saved epoch first;
+        # no new cells were processed and on_train_epoch_start was not called.
+        if self.pass_started is None:
+            return
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize(self.device)
+        wall = time.perf_counter() - self.pass_started
+        samples = parameter_samples(self)
+        updates = self.global_step - self.pass_start_step
+        local = {'rank': self.global_rank, 'pass': self.current_epoch + 1, 'updates': updates,
+                 'completed_updates': self.global_step, 'cell_indices': self.epoch_cells,
+                 'constant_cell_indices': sorted(self.constant_cells),
+                 'loss_means': {k: v / updates for k, v in self.loss_sums.items()},
+                 'sampled_parameter_max_abs_drift': {k: float((v - self.start_samples[k]).abs().max()) for k, v in samples.items()},
+                 'gradient_norm_max_before_clip': self.max_pre_clip, 'gradient_norm_max_after_clip': self.max_post_clip,
+                 'wall_seconds_including_validation': wall, 'validation_seconds': self.validation_seconds,
+                 'training_seconds': wall - self.validation_seconds,
+                 'cuda_peak_allocated_bytes': torch.cuda.max_memory_allocated(self.device) if self.device.type == 'cuda' else 0,
+                 'cuda_peak_reserved_bytes': torch.cuda.max_memory_reserved(self.device) if self.device.type == 'cuda' else 0}
+        ranks = [None] * self.trainer.world_size
+        if dist.is_initialized():
+            dist.all_gather_object(ranks, local)
+        else:
+            ranks = [local]
+        if self.trainer.is_global_zero:
+            save_json(self.attempt_dir / f'pass-{self.current_epoch + 1:03}.json', {
+                'ranks': ranks, 'global_cell_presentations': sum(len(r['cell_indices']) for r in ranks),
+                'global_cells_per_training_second': sum(len(r['cell_indices']) for r in ranks) /
+                                                   max(r['training_seconds'] for r in ranks)})
+        self.pass_started = None
+
+    def on_fit_end(self):
+        if self.trainer.is_global_zero:
+            from prot_loc_benchmark.provenance import record
+            selection = self.output_dir / 'selection.json'
+            summary = {'identity': self.identity, 'global_step': self.global_step,
+                       'selection': json.loads(selection.read_text()) if selection.exists() else None,
+                       'status': 'fit_completed', 'attempt': str(self.attempt_dir.relative_to(self.output_dir))}
+            inputs = [self.output_dir / 'run.json', self.output_dir / 'source.json']
+            if self.identity.get('config'):
+                inputs += [Path(self.identity['config']['preflight']) / 'preflight.json',
+                           Path(self.identity['config']['pretrained_weights'])]
+            record([self.attempt_dir], input_paths=[p for p in inputs if p.exists()])
+            save_json(self.attempt_dir / 'completed.json', summary)
+
+    def on_validation_epoch_start(self):
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize(self.device)
+        self.validation_started = time.perf_counter()
+
+    def validation_step(self, batch, batch_idx):
+        _, _, logits = self(batch['image'], 0.)
+        labels = batch['allele']
+        self.validation_outputs.append((batch['cell_index'].cpu(), labels.cpu(),
+                                        logits.softmax(-1).cpu(), F.cross_entropy(logits, labels, reduction='none').cpu()))
+
+    def on_validation_epoch_end(self):
+        local = tuple(torch.cat([row[i] for row in self.validation_outputs]).numpy() for i in range(4))
+        self.validation_outputs.clear()
+        gathered = [None] * self.trainer.world_size
+        if dist.is_initialized():
+            dist.all_gather_object(gathered, local)
+        else:
+            gathered = [local]
+        columns = [np.concatenate([rank[i] for rank in gathered]) for i in range(4)]
+        metrics = allele_metrics(*columns, self.trainer.datamodule.val_data.positions)
+        if self.trainer.sanity_checking:
+            return
+        for name in ('macro_ap', 'top1', 'top5', 'probe_loss'):
+            # Models/probabilities remain FP32; preserve the AP statistic in FP64
+            # so checkpoint comparisons and serialized JSON use identical values.
+            self.log('val/' + name, torch.tensor(metrics[name], device=self.device, dtype=torch.float64),
+                     sync_dist=False)
+        if self.trainer.is_global_zero:
+            metrics['categories'] = self.categories
+            save_json(self.attempt_dir / f'validation-pass-{self.current_epoch + 1:03}.json', metrics)
+        if hasattr(self, 'validation_started'):
+            if self.device.type == 'cuda':
+                torch.cuda.synchronize(self.device)
+            self.validation_seconds += time.perf_counter() - self.validation_started
+
+    def on_save_checkpoint(self, checkpoint):
+        # Production checkpoints are pass-boundary only: no unverified mid-pass replay.
+        local = {'python': random.getstate(), 'numpy': np.random.get_state(), 'torch': torch.get_rng_state(),
+                 'cuda': torch.cuda.get_rng_state() if self.device.type == 'cuda' else None,
+                 'constant_cells': sorted(self.constant_cells)}
+        states = [None] * self.trainer.world_size
+        if dist.is_initialized():
+            dist.all_gather_object(states, local)
+        else:
+            states = [local]
+        checkpoint['allele_v2'] = {'identity': self.identity, 'rng_states': states,
+                                   'steps_per_pass': self.steps_per_pass,
+                                   'next_pass': self.current_epoch + 1}
+
+    def on_load_checkpoint(self, checkpoint):
+        saved = checkpoint.get('allele_v2', {})
+        if saved.get('identity') != self.identity:
+            raise ValueError('Incompatible checkpoint: protocol/config/data/seed/environment differs')
+        if checkpoint['global_step'] != saved['next_pass'] * saved['steps_per_pass']:
+            raise ValueError('Only completed-pass resumes are supported')
+        from .subcell_run import require_resumable
+        require_resumable(self.output_dir, checkpoint)
+        self.pending_rng = saved['rng_states']
+
+    def on_train_start(self):
+        if self.pending_rng is not None:
+            state = self.pending_rng[self.global_rank]
+            random.setstate(state['python'])
+            np.random.set_state(state['numpy'])
+            torch.set_rng_state(state['torch'].cpu())
+            if state['cuda'] is not None:
+                torch.cuda.set_rng_state(state['cuda'].cpu())
+            self.constant_cells = set(state['constant_cells'])
+            self.pending_rng = None
