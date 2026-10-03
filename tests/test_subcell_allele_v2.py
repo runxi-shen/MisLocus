@@ -1,20 +1,29 @@
 """Run: PYTHONPATH=src:vendor/subcell_embed python -m unittest discover -s tests."""
+import copy
+import random
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Subset
 
+from models.get_models import get_model_dict
 from models.ntxent import get_contrastive_loss
 from prot_loc_benchmark.config import ALL_PUBLIC_BATCHES, SUBCELL_CHANNEL_FILES
+from prot_loc_benchmark.preprocessing.subcell import SubCellPreprocessor
 from prot_loc_benchmark.representations.subcell_allele_data import (
     AlleleBatchSampler, MisLocusSubCellDataset, collate_cells, fixed_validation, stratified_draw,
 )
 from prot_loc_benchmark.representations.subcell_manifest import (
     add_plate_maps, align_crop_rows, release_tables, sha256, split_for_plate,
+)
+from prot_loc_benchmark.representations.subcell_protocol import model_config
+from prot_loc_benchmark.representations.subcell_training import (
+    AlleleDataModule, allele_metrics, lr_factor, setup_transforms,
 )
 
 
@@ -41,6 +50,20 @@ def make_cohort(root, count=17):
             image[:] = np.arange(12, dtype=np.uint16)[:, None, None] + c * 100
             np.save(base / channel, image)
     return pd.DataFrame(rows), classes
+
+
+def tiny_components(family):
+    config = copy.deepcopy(model_config(family))
+    backbone = config['mae_model' if family == 'mae' else 'vit_model']['args']
+    backbone.update(hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32, image_size=32)
+    if family == 'mae':
+        backbone.update(decoder_hidden_size=16, decoder_num_hidden_layers=1,
+                        decoder_num_attention_heads=2, decoder_intermediate_size=32)
+    config['pool_model']['args'].update(dim=16, int_dim=8)
+    for name in ('ssl_model', 'supcon_model'):
+        if name in config:
+            config[name]['args']['projector']['args'].update(in_channels=32, mlp_layers=[32, 32, 8])
+    return get_model_dict(config)
 
 
 class AlleleRegression(unittest.TestCase):
@@ -186,6 +209,116 @@ class AlleleRegression(unittest.TestCase):
         draw = stratified_draw(group, 8, np.random.default_rng(8))
         self.assertEqual(len(set(draw)), 8)
         self.assertEqual(train.loc[draw].groupby('Metadata_Plate').size().tolist(), [4, 4])
+
+    def test_validation_loader_preserves_manifest_indices_and_saved_order(self):
+        frame = self.frame.copy()
+        frame.index = np.arange(len(frame)) * 3 + 101
+        held_out = frame.loc[frame.split == 'val'].index[-1]
+        frame.loc[held_out, 'split'] = 'test'
+        validation = frame.loc[frame.split == 'val'].iloc[[4, 1, 6]]
+        saved_ids = validation.cell_id.tolist()
+        data = AlleleDataModule(frame, self.classes, saved_ids, 42, workers=0)
+        data.trainer = SimpleNamespace(global_rank=0, world_size=1)
+        data.setup()
+        self.assertEqual(data.val_data.positions.tolist(), validation.index.tolist())
+        batch = next(iter(data.val_dataloader()))
+        self.assertEqual(batch['cell_index'].tolist(), validation.index.tolist())
+        self.assertEqual(batch['allele'].tolist(), validation.class_index.tolist())
+        self.assertEqual(batch['image'][:, 0, 0, 0].tolist(), validation.cell_idx.tolist())
+        train_id = frame.loc[frame.split == 'train', 'cell_id'].iloc[0]
+        for ids in ([saved_ids[0]] * 2, [train_id], [frame.loc[held_out, 'cell_id']]):
+            with self.subTest(ids=ids), self.assertRaisesRegex(ValueError, 'unique.*T3-only'):
+                data.validation_ids = ids
+                data.setup()
+
+    def test_seed_changes_augmentation_masking_dropout_and_sampling(self):
+        embeddings = tiny_components('mae')['encoder'].embeddings
+        images = torch.linspace(0, 1, 2 * 4 * 32 * 32).reshape(2, 4, 32, 32)
+
+        def draw(seed):
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            geometry, intensity = setup_transforms()
+            first, second = geometry(images.clone()), geometry(images.clone())
+            second = intensity(second)
+            mask = embeddings.random_masking(torch.zeros(2, 784, 16), mask_ratio=.25)[1]
+            dropout = torch.nn.functional.dropout(torch.ones(512), p=.5, training=True)
+            weight = torch.nn.Linear(16, 8).weight.detach().clone()
+            return first, second, mask, dropout, weight
+
+        baseline = draw(42)
+        self.assertFalse(torch.equal(baseline[0], baseline[1]))
+        self.assertTrue(all(torch.equal(a, b) for a, b in zip(baseline, draw(42))))
+        train = self.frame.loc[self.frame.split == 'train']
+        for seed in (43, 44):
+            # Same-seed replay models shared rank streams; changing the run seed is different.
+            self.assertTrue(all(not torch.equal(a, b) for a, b in zip(baseline, draw(seed))))
+            self.assertNotEqual(list(AlleleBatchSampler(train, 42)), list(AlleleBatchSampler(train, seed)))
+
+    def test_preprocessing_geometry_and_joint_normalization(self):
+        preprocess = SubCellPreprocessor()
+        self.assertEqual((preprocess.rescaled_size, preprocess.crop_offset), (955, 253))
+        image = torch.arange(4 * 128 * 128, dtype=torch.float32).reshape(1, 4, 128, 128)
+        expected = torch.nn.functional.interpolate(image, size=955, mode='bilinear', align_corners=False)[:, :, 253:701, 253:701]
+        expected = (expected - expected.min()) / (expected.max() - expected.min() + 1e-6)
+        self.assertTrue(torch.equal(preprocess(image), expected))
+        self.assertEqual(preprocess(torch.ones_like(image)).count_nonzero().item(), 0)
+        with self.assertRaisesRegex(ValueError, 'finite'):
+            preprocess(torch.full_like(image, float('nan')))
+        for invalid in (image[0], image[:, :, :, :-1], image.double(), image.to(torch.int32)):
+            with self.subTest(shape=invalid.shape, dtype=invalid.dtype), self.assertRaises(ValueError):
+                preprocess(invalid)
+
+    def test_native_scheduler_before_update_and_resume(self):
+        parameter = torch.nn.Parameter(torch.ones(()))
+        opt = torch.optim.AdamW([parameter], lr=5e-5)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(opt, lambda u: lr_factor(u, 200, 10))
+        rates = []
+        for i in range(200):
+            rates.append(opt.param_groups[0]['lr'])
+            if i == 7:
+                saved = (copy.deepcopy(opt.state_dict()), copy.deepcopy(scheduler.state_dict()))
+            parameter.grad = torch.ones_like(parameter)
+            opt.step()
+            scheduler.step()
+        self.assertEqual(rates[0], 0)
+        self.assertAlmostEqual(rates[1], 5e-6)
+        self.assertEqual(rates[10], 5e-5)
+        self.assertGreater(rates[-1], 5e-8)
+        self.assertAlmostEqual(opt.param_groups[0]['lr'], 5e-8)
+        opt.load_state_dict(saved[0])
+        scheduler.load_state_dict(saved[1])
+        for rate in rates[7:]:
+            self.assertEqual(opt.param_groups[0]['lr'], rate)
+            opt.step()
+            scheduler.step()
+
+
+    def test_validation_deduplicates_and_omits_unsupported(self):
+        probs = np.array([[.8, .15, .05], [.1, .8, .1], [.4, .5, .1]])
+        labels = np.array([0, 1, 0])
+        losses = np.array([1., 2., 3.])
+        expected = allele_metrics([10, 11, 12], labels, probs, losses, [10, 11, 12])
+        actual = allele_metrics([10, 11, 12, 10], labels[[0, 1, 2, 0]], probs[[0, 1, 2, 0]],
+                               losses[[0, 1, 2, 0]], [10, 11, 12])
+        self.assertEqual(expected, actual)
+        self.assertEqual(actual['omitted'], [2])
+        self.assertEqual(actual['macro_ap'], 1.)
+        self.assertAlmostEqual(actual['top1'], 2 / 3)
+        self.assertEqual(actual['probe_loss'], 2.)
+        with self.assertRaisesRegex(ValueError, 'coverage'):
+            allele_metrics([10, 11, 12], labels, probs, losses, [10, 11])
+
+    def test_eval_zero_mask_is_identity_and_does_not_consume_rng(self):
+        encoder = tiny_components('mae')['encoder'].eval()
+        tokens = torch.randn(2, 784, 16)
+        state = torch.get_rng_state().clone()
+        actual, mask, restore = encoder.embeddings.random_masking(tokens, mask_ratio=0.)
+        self.assertTrue(torch.equal(actual, tokens))
+        self.assertTrue(torch.equal(state, torch.get_rng_state()))
+        self.assertEqual(mask.count_nonzero().item(), 0)
+        self.assertTrue(torch.equal(restore, torch.arange(784).expand(2, -1)))
 
 
 if __name__ == '__main__':
