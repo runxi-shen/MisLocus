@@ -44,7 +44,7 @@ def main():
     rank, world = int(os.environ['RANK']), int(os.environ['WORLD_SIZE'])
     if world < 1 or 16 % world:
         parser.error('WORLD_SIZE must divide the 16-allele global batch')
-    # Do not reconfigure an OpenMP runtime already limited by the launcher.
+    # torchrun already limits CPU threads; avoid redundant pool initialization.
     if torch.get_num_threads() != 1:
         torch.set_num_threads(1)
     fresh_output(args.output, file=True)

@@ -111,9 +111,7 @@ def main():
     parser.add_argument('--family', choices=['mae', 'vit'], default='vit')
     parser.add_argument('--gpu', action='store_true')
     args = parser.parse_args()
-    # Do not reconfigure an OpenMP runtime already limited by the launcher.
-    if torch.get_num_threads() != 1:
-        torch.set_num_threads(1)
+    torch.set_num_threads(1)
     torch.set_float32_matmul_precision('high')
     if args.prepare:
         args.prepare.mkdir(parents=True, exist_ok=False)
