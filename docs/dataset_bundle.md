@@ -137,6 +137,33 @@ A complete batch can require substantial memory and time: `--scope` and
 `--channels` do not limit how many feature rows XGBoost loads, and PA retains
 its reference pool. `--sample` downloads browseable crops, not scoring features.
 
+### PA: T4 queries, full comparison pool
+
+`09c_classify_PA.py --test-split t4` restricts the **queries entering the
+allele-level score**, not the profiles available as comparison partners.
+By default, single-cell features are median-aggregated per field of view.
+For each T4 variant query, cosine-similarity ranking uses:
+
+- **Positives:** the same variant on different physical plates in the same
+  batch, including T1–T3. A different T4 plate can also supply positives if
+  it contains the same allele; experimental positives need not share a platemap.
+- **Negatives:** matched reference-protein profiles on the query's own physical
+  plate, with the same gene. Unrelated proteins are not negative partners.
+
+Per-profile AP is computed with this full pool; only T4 variant AP rows enter
+allele-level mAP, its random-ranking null and within-batch/channel BH correction.
+T4 is held out from encoder training, but comparison partners can come from
+encoder-training or validation plates. This is cross-plate reproducibility,
+not retrieval against an entirely encoder-unseen pool.
+
+Do not prefilter inputs to T4: most alleles would lose their different-plate
+positives. The same applies to LOO controls, which compare a pseudo-variant
+well across plates against other same-allele wells on its platemap.
+The producer's `is_hit` is **strict p95 exceedance only**; the reporting PA hit
+also requires `below_corrected_p_vs_ref` (BH-adjusted p < 0.05). Missing support
+or calibration is not evidence of a non-hit. Reporting-cohort filtering must
+not redefine the producer's null or BH family.
+
 ### Script map and downstream prerequisites
 
 | Script | Reads → writes / purpose |
