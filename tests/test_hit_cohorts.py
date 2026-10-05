@@ -177,6 +177,16 @@ class HitCohortChecks(unittest.TestCase):
             pa_command[pa_command.index("--input") + 2] = BIOREP_PAIRS["pair_78"][1]
             self.assertNotEqual(subprocess.run(pa_command, capture_output=True).returncode, 0)
             self.assertFalse((root / "bad-identity/report.json").exists())
+            empty = root / "empty.parquet"
+            pl.read_parquet(pa).head(0).write_parquet(empty)
+            empty_command = pa_command.copy()
+            empty_command[empty_command.index("--input") + 2] = batch
+            empty_command[empty_command.index("--input") + 3] = str(empty)
+            empty_command[-1] = str(root / "empty-report")
+            subprocess.run(empty_command, check=True, capture_output=True)
+            counts = pl.read_parquet(root / "empty-report/denominators.parquet")
+            self.assertTrue(counts["n_alleles"].eq(0).all())
+            self.assertEqual(counts["hit_fraction"].null_count(), 3)
 
 
 if __name__ == "__main__":

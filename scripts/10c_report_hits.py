@@ -37,7 +37,7 @@ def main():
         stream = io.BytesIO(payload)
         frame = pl.read_csv(stream) if path.suffix == ".csv" else pl.read_parquet(stream)
         for key, value in [("representation", rep), ("batch", batch)]:
-            if key in frame.columns and (frame[key].null_count() or set(frame[key]) != {value}):
+            if key in frame.columns and (frame[key].null_count() or not set(frame[key]) <= {value}):
                 raise ValueError(f"Input {key} does not match the declared value")
             frame = frame.with_columns(pl.lit(value).alias(key))
         frames.append(frame)
