@@ -351,19 +351,7 @@ def _run_map(
     )
 
     # Compute mAP + p-values + BH FDR (variant cells only)
-    ap_variant = ap_scores[ap_scores[REFERENCE_COL] == -1]
-
-    if test_split == "t4":
-        mask = ap_variant["Metadata_Plate"].str.endswith("T4")
-        n_before, n_after = len(ap_variant), int(mask.sum())
-        logger.info(
-            "T4 filter (%s): %d → %d variant rows (%d alleles → %d)",
-            label, n_before, n_after,
-            ap_variant["Metadata_gene_allele"].nunique(),
-            ap_variant.loc[mask, "Metadata_gene_allele"].nunique(),
-        )
-        ap_variant = ap_variant.loc[mask]
-    ap_variant = ap_variant.loc[query_mask.reindex(ap_variant.index)]
+    ap_variant = ap_scores.loc[query_mask.reindex(ap_scores.index)]
     unsupported = (ap_variant["n_pos_pairs"] <= 0) | (ap_variant["n_total_pairs"] <= ap_variant["n_pos_pairs"])
     if unsupported.any() or not np.isfinite(
         ap_variant[["average_precision", "normalized_average_precision"]].to_numpy()
