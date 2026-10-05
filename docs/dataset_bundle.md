@@ -215,12 +215,19 @@ to load, and need not number nine. Channels retain their native names.
   allele×batch keys; wholly unobserved alleles cannot be counted by this task.
 - Shared support requires an eligible row in **every requested setting** for
   an allele×batch. This filtering does not redefine the producer BH family.
-- `any_available`: one allele row across all shared available batches; hit in
-  any batch. `complete_pair_any` / `complete_pair_all`: first retain only complete
-  biological pairs from `BIOREP_PAIRS`, then require any / all retained batches
-  to hit. With multiple complete pairs, `all` means all of their batches—not
-  merely one successful pair. Incomplete extra pairs do not enter these two
-  summaries. Means use the same retained batches as each summary's calls.
+- `any_available`: descriptive summary across all shared available batches;
+  hit in any batch, even if its partner is missing. This is distinct from the
+  paired lenient/stringent comparison below.
+- `complete_pair_any` (**lenient**): either batch hits within a complete pair.
+  `complete_pair_all` (**stringent**): both batches hit within a complete
+  pair. In either setting, **any successful pair makes the allele a hit**; a
+  different pair cannot cancel it. For example, pair outcomes `(hit, hit)` and
+  `(non-hit, non-hit)` yield a hit under both settings. `(hit, non-hit)` and
+  `(non-hit, hit)` yield a lenient hit but not a stringent hit.
+- Both paired summaries retain only complete biological pairs from `BIOREP_PAIRS`;
+  incomplete extra pairs do not contribute. Means still use all retained batches,
+  not only successful pairs. The command emits both settings as `cohort` rows in
+  `allele_summary` and `denominators`; select the intended rows downstream.
 
 Outputs: `batch_audit.parquet` (observed/eligible/shared flags and exclusion
 reasons), `shared_mask.parquet`, `allele_summary.parquet`, and `denominators`

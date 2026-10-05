@@ -1,6 +1,7 @@
 """Small numerical/CLI contracts; not historical-data reproduction."""
 
 import hashlib
+import itertools
 import json
 import os
 from pathlib import Path
@@ -71,8 +72,34 @@ class HitCohortChecks(unittest.TestCase):
         self.assertEqual(calls["any_available"]["n_batches"], 5)
         self.assertEqual(calls["complete_pair_all"]["n_batches"], 4)
         self.assertAlmostEqual(calls["complete_pair_all"]["mean_score"], .7)
-        self.assertFalse(calls["complete_pair_all"]["hit"])
+        self.assertTrue(calls["complete_pair_all"]["hit"])
         self.assertTrue(calls["complete_pair_any"]["hit"])
+
+    def test_any_successful_pair_counts_for_both_tasks(self):
+        for task in ["pa", "xgb"]:
+            for a, b, c, d in itertools.product([False, True], repeat=4):
+                with self.subTest(task=task, batch_hits=(a, b, c, d)):
+                    frame = pl.DataFrame([
+                        pa_row("r1", batch, "v", .8 if hit else .4)
+                        for batch, hit in zip("ABCDE", [a, b, c, d, True])
+                    ])
+                    if task == "xgb":
+                        frame = frame.rename({"Metadata_gene_allele": "allele_var",
+                                              "mAP_vs_ref_norm": "auroc_mean",
+                                              "null_threshold_p95": "null_threshold"})
+                    out = hit_cohorts(frame, task, SETTINGS[:1], PAIRS)
+                    calls = {r["cohort"]: r for r in out["allele_summary"].iter_rows(named=True)}
+                    self.assertEqual(calls["complete_pair_any"]["hit"], (a or b) or (c or d))
+                    self.assertEqual(calls["complete_pair_all"]["hit"], (a and b) or (c and d))
+                    # An unpaired E hit is descriptive only, never pair evidence.
+                    self.assertTrue(calls["any_available"]["hit"])
+                    self.assertEqual(calls["complete_pair_all"]["n_batches"], 4)
+                    expected_mean = sum(.8 if h else .4 for h in [a, b, c, d]) / 4
+                    self.assertAlmostEqual(calls["complete_pair_all"]["mean_score"], expected_mean)
+                    counts = dict(out["denominators"].select("cohort", "n_hits").rows())
+                    self.assertEqual(counts["complete_pair_all"], int((a and b) or (c and d)))
+                    self.assertTrue(out["denominators"]["n_alleles"].eq(1).all())
+                    self.assertEqual(out["batch_audit"]["reporting_hit"].to_list(), [a, b, c, d, True])
 
     def test_invalid_input_and_empty_support(self):
         frame = pl.DataFrame([pa_row("r1", "A", "v")])

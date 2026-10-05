@@ -81,8 +81,8 @@ def hit_cohorts(
     before concatenation. Inputs use native XGB/PA columns plus representation,
     channel and batch. Thresholds must already match scoring backend/settings;
     this checks values, not calibration provenance or control adequacy.
-    Complete-pair 'all' requires hits in every retained complete-pair batch.
-    Original producer fields are not overwritten.
+    Complete-pair 'any'/'all' requires either/both batches within a pair to hit;
+    any successful pair makes the allele a hit. Producer fields are preserved.
     """
     selected = pl.DataFrame(settings, schema=SETTING, orient="row")
     if selected.is_empty() or selected.is_duplicated().any():
@@ -126,8 +126,9 @@ def hit_cohorts(
     cohorts = ["any_available", "complete_pair_any", "complete_pair_all"]
     for cohort, data in zip(cohorts, [shared, complete, complete]):
         aggregate = pl.col("reporting_hit").all() if cohort.endswith("_all") else pl.col("reporting_hit").any()
+        data = data.with_columns(pair_hit=aggregate.over(SETTING + ["allele", "pair_name"]))
         parts.append(data.group_by(SETTING + ["allele"]).agg(
-            mean_score=pl.col("score").mean(), hit=aggregate,
+            mean_score=pl.col("score").mean(), hit=pl.col("pair_hit").any(),
             n_batches=pl.col("batch").n_unique(),
         ).with_columns(cohort=pl.lit(cohort)))
     alleles = pl.concat(parts).sort("cohort", *SETTING, "allele")
