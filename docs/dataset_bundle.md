@@ -164,6 +164,25 @@ also requires `below_corrected_p_vs_ref` (BH-adjusted p < 0.05). Missing support
 or calibration is not evidence of a non-hit. Reporting-cohort filtering must
 not redefine the producer's null or BH family.
 
+Before aggregation, PA excludes queries lacking same-plate/same-gene references
+and logs their count. Their profiles remain in the full pool as possible
+cross-plate positives for other queries. With no eligible queries, the helper
+returns an empty result; a run with no scored channels exits without new score
+tables. Any pool used for scoring must have finite profiles with positive finite
+norms, and retained queries must have positive and negative partners plus finite
+AP/normalized AP. Invalid inputs fail rather than produce degenerate scores.
+
+LOO controls use the same checks. Explicit empty-query runs are skipped; unexpected
+control errors now abort instead of silently calibrating on a partial set or
+continuing as if controls were merely absent. A genuinely empty control set still
+produces null thresholds/hit flags, which the reporting task treats as unavailable.
+These safeguards can change eligibility, BH results or control calibration on
+unsupported inputs; they are not a claim that historical numerical results are
+unchanged. CLI provenance is recorded only after a successful run; a failed rerun
+must not rebind previous results to its command. Use fresh output locations:
+output-directory reuse is unchanged, and old files left after a failed run must
+not be consumed as new results.
+
 ### Calibrated hits and shared cohorts
 
 `10c_report_hits.py` reads **already-calibrated batch score tables**. It does
