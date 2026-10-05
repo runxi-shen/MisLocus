@@ -164,6 +164,71 @@ also requires `below_corrected_p_vs_ref` (BH-adjusted p < 0.05). Missing support
 or calibration is not evidence of a non-hit. Reporting-cohort filtering must
 not redefine the producer's null or BH family.
 
+### Calibrated hits and shared cohorts
+
+`10c_report_hits.py` reads **already-calibrated batch score tables**. It does
+not run models, estimate control thresholds, normalize features, recompute BH,
+or verify that calibration used the matching backend/settings. Keep XGB and PA
+in separate invocations and fresh output directories.
+
+Required input columns (CSV or Parquet):
+
+| Task | Allele | Score | Matched control p95 | Additional requirement |
+|---|---|---|---|---|
+| `xgb` | `allele_var` | `auroc_mean` | `null_threshold` | AUROC and threshold in [0, 1] |
+| `pa` | `Metadata_gene_allele` | `mAP_vs_ref_norm` | `null_threshold_p95` | `corrected_p_value_vs_ref`, already corrected in the producer's family |
+
+Both require `channel`. Each `--input REPRESENTATION BATCH FILE` supplies the
+file's identity; existing `representation`/`batch` columns must agree. Use
+experimental-variant summaries, not control classifiers, and consistent scoring
+protocols across files. Duplicate setting×allele×batch rows are rejected.
+
+**Calibration is an input contract, not inferred from a column name.** Do not
+feed the 0.5/False placeholders from `load_single_fold_metrics`, fallback
+thresholds from runs without valid controls, or the 32-draw PA smoke outputs
+into scientific hit reporting. The script rejects contradictory producer flags
+when present, but cannot establish that an otherwise plausible threshold is
+real or matched. The full producer-to-report admission path is separate work.
+
+Example using two independently verified, calibrated batch tables:
+
+```bash
+PYTHONPATH=src .pixi/envs/default/bin/python scripts/10c_report_hits.py \
+    --task xgb --setting vit GFP \
+    --input vit 2024_01_23_Batch_7 scores/batch7-calibrated.csv \
+    --input vit 2024_02_06_Batch_8 scores/batch8-calibrated.csv \
+    --output-dir data/processed/benchmark/hits-xgb
+```
+
+Repeat `--setting REPRESENTATION CHANNEL` and `--input` for a cross-setting
+comparison. Settings are explicit, not inferred from whichever files happened
+to load, and need not number nine. Channels retain their native names.
+
+- XGB hit: **score > p95**. PA reporting hit: **score > p95 AND corrected p < .05**.
+  Equality fails either strict test. Negative finite normalized PA scores remain
+  valid. Original producer flags are retained, not overwritten by reporting hits.
+- Nonfinite/missing scores or thresholds, and invalid PA corrected p-values,
+  are unavailable: `reporting_hit=null`, never a negative. Missing rows in a
+  requested setting are recorded explicitly over the union of observed
+  allele×batch keys; wholly unobserved alleles cannot be counted by this task.
+- Shared support requires an eligible row in **every requested setting** for
+  an allele×batch. This filtering does not redefine the producer BH family.
+- `any_available`: one allele row across all shared available batches; hit in
+  any batch. `complete_pair_any` / `complete_pair_all`: first retain only complete
+  biological pairs from `BIOREP_PAIRS`, then require any / all retained batches
+  to hit. With multiple complete pairs, `all` means all of their batches—not
+  merely one successful pair. Incomplete extra pairs do not enter these two
+  summaries. Means use the same retained batches as each summary's calls.
+
+Outputs: `batch_audit.parquet` (observed/eligible/shared flags and exclusion
+reasons), `shared_mask.parquet`, `allele_summary.parquet`, and `denominators`
+(CSV and Parquet, including zero denominators and null empty-cohort fractions).
+`report.json` is written last with input-byte hashes and task/settings; it is a
+report manifest, **not a historical producer or calibration receipt**. Existing
+output directories are refused. A failed run may leave an incomplete directory;
+do not use it unless `report.json` exists. This reporting task does not yet
+replace the older ClinVar/predictor readers.
+
 ### Script map and downstream prerequisites
 
 | Script | Reads → writes / purpose |
@@ -180,6 +245,7 @@ not redefine the producer's null or BH family.
 | `09c_classify_PA.py` | Cleaned features → PA scores and optional control-null outputs. |
 | `10_benchmark_clinvar.py` | XGBoost or PA scores + annotations → per-representation ClinVar summaries. |
 | `10b_benchmark_hpa.py` | Reference-cell features + HPA labels → localization retrieval; independent of variant scores. |
+| `10c_report_hits.py` | Calibrated batch scores → shared-support hits, cohort summaries and denominators. |
 | `11_summarize_across_reps.py` | Existing `10` summaries → cross-representation tables and plots. |
 
 For ClinVar, prepare the intended biological-replicate batches (see
