@@ -107,6 +107,23 @@ class HitCohortChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"\[0, 1\]"):
             hit_cohorts(frame.with_columns(auroc_mean=pl.lit(1.2)), "xgb", SETTINGS[:1], PAIRS)
 
+    def test_per_input_schema_before_union(self):
+        first = pl.DataFrame([pa_row("r1", "A", "v")]).with_columns(
+            is_hit=pl.lit(True), below_corrected_p_vs_ref=pl.lit(True)
+        )
+        second = pl.DataFrame([pa_row("r1", "B", "v")])
+        out = hit_cohorts([first, second], "pa", SETTINGS[:1], PAIRS)
+        self.assertTrue(out["allele_summary"]["hit"].all())
+        self.assertEqual(out["batch_audit"]["is_hit"].to_list(), [True, None])
+        for column in ["corrected_p_value_vs_ref", "null_threshold_p95", "mAP_vs_ref_norm"]:
+            with self.subTest(column=column), self.assertRaisesRegex(ValueError, "Missing score columns"):
+                hit_cohorts([first, second.drop(column)], "pa", SETTINGS[:1], PAIRS)
+        with self.assertRaisesRegex(ValueError, "disagrees"):
+            hit_cohorts([first, second.with_columns(is_hit=pl.lit(None, dtype=pl.Boolean))],
+                        "pa", SETTINGS[:1], PAIRS)
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            hit_cohorts([first, first], "pa", SETTINGS[:1], PAIRS)
+
     def test_real_cli_and_no_overwrite(self):
         script = Path(__file__).resolve().parents[1] / "scripts/10c_report_hits.py"
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,6 +134,8 @@ class HitCohortChecks(unittest.TestCase):
             for i, batch in enumerate(BIOREP_PAIRS["pair_78"]):
                 frame = pl.DataFrame(dict(allele_var=["v"], channel=["GFP"],
                                           auroc_mean=[.8 if i == 0 else .5], null_threshold=[.5]))
+                if i == 0:
+                    frame = frame.with_columns(is_hit=pl.lit(True))
                 path = root / f"scores-{i}.csv"
                 frame.write_csv(path)
                 command += ["--input", "morphem", batch, str(path)]
@@ -131,6 +150,16 @@ class HitCohortChecks(unittest.TestCase):
             self.assertNotEqual(retry.returncode, 0)
             self.assertEqual(before, {p.name: p.read_bytes() for p in out.iterdir()})
             self.assertEqual(len(before), 6)
+            # Required columns cannot be rescued by another file's schema.
+            missing = root / "missing-threshold.csv"
+            pl.read_csv(root / "scores-1.csv").drop("null_threshold").write_csv(missing)
+            bad_command = command.copy()
+            bad_command[bad_command.index(str(out))] = str(root / "bad-schema")
+            bad_command[-1] = str(missing)
+            bad = subprocess.run(bad_command, capture_output=True)
+            self.assertNotEqual(bad.returncode, 0)
+            self.assertIn(b"Missing score columns", bad.stderr)
+            self.assertFalse((root / "bad-schema/report.json").exists())
             # PA Parquet uses the same real CLI; a producer p95 hit alone is not
             # a reporting hit at the exact BH boundary.
             pa = root / "pa.parquet"

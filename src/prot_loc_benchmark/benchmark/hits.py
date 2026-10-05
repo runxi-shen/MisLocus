@@ -10,20 +10,8 @@ SETTING = ["representation", "channel"]
 KEY = SETTING + ["batch", "allele"]
 
 
-def hit_cohorts(
-    scores: pl.DataFrame,
-    task: str,
-    settings: list[tuple[str, str]],
-    biorep_pairs: dict[str, tuple[str, str]] = BIOREP_PAIRS,
-) -> dict[str, pl.DataFrame]:
-    """Return batch audit, shared mask, allele summaries and setting denominators.
-
-    Inputs use native XGB/PA score columns plus representation, channel and batch.
-    Thresholds must already be matched to the scoring backend/settings. This
-    function checks values, not provenance or adequacy of the control population.
-    Complete-pair 'all' requires hits in every retained complete-pair batch, not
-    merely one successful pair. Original producer fields are not overwritten.
-    """
+def _batch_hits(scores: pl.DataFrame, task: str) -> pl.DataFrame:
+    """Validate one input before schema union can invent missing columns/flags."""
     if task not in {"xgb", "pa"}:
         raise ValueError("task must be xgb or pa")
     columns = ("allele_var", "auroc_mean", "null_threshold") if task == "xgb" else (
@@ -35,26 +23,13 @@ def hit_cohorts(
     missing = set(required) - set(scores.columns)
     if missing:
         raise ValueError(f"Missing score columns: {sorted(missing)}")
-    selected = pl.DataFrame(settings, schema=SETTING, orient="row")
-    if selected.is_empty() or selected.is_duplicated().any():
-        raise ValueError("Provide distinct, nonempty representation/channel settings")
-    for frame, keys in [(selected, SETTING), (scores, SETTING + ["batch", columns[0]])]:
-        if any(frame[c].dtype != pl.String or frame[c].is_null().any()
-               or frame[c].str.strip_chars().eq("").any() for c in keys):
-            raise ValueError("Identity columns must contain nonempty strings")
-    pair_map = {}
-    for pair, batches in biorep_pairs.items():
-        if len(batches) != 2 or len(set(batches)) != 2 or set(batches) & pair_map.keys():
-            raise ValueError("Biological pairs must contain two distinct, non-overlapping batches")
-        pair_map.update(dict.fromkeys(batches, pair))
-    rows = scores.join(selected, on=SETTING, how="semi").with_columns(
+    if any(scores[c].dtype != pl.String or scores[c].is_null().any()
+           or scores[c].str.strip_chars().eq("").any() for c in SETTING + ["batch", columns[0]]):
+        raise ValueError("Identity columns must contain nonempty strings")
+    rows = scores.with_columns(
         allele=pl.col(columns[0]), score=pl.col(columns[1]).cast(pl.Float64),
         threshold=pl.col(columns[2]).cast(pl.Float64),
     )
-    if rows.select(KEY).is_duplicated().any():
-        raise ValueError("Duplicate representation/channel/batch/allele score rows")
-    if not set(rows["batch"]) <= pair_map.keys():
-        raise ValueError("Scores contain batches outside the declared biological pairs")
     reason = (pl.when(~pl.col("score").is_finite().fill_null(False))
               .then(pl.lit("nonfinite_score"))
               .when(~pl.col("threshold").is_finite().fill_null(False))
@@ -88,10 +63,48 @@ def hit_cohorts(
     hit = pl.col("threshold_pass")
     if task == "pa":
         hit &= pl.col("corrected_p_value_vs_ref") < .05
-    rows = rows.with_columns(
+    return rows.with_columns(
         reporting_hit=pl.when(pl.col("eligible")).then(hit).otherwise(None),
         observed=pl.lit(True),
     )
+
+
+def hit_cohorts(
+    scores: pl.DataFrame | list[pl.DataFrame],
+    task: str,
+    settings: list[tuple[str, str]],
+    biorep_pairs: dict[str, tuple[str, str]] = BIOREP_PAIRS,
+) -> dict[str, pl.DataFrame]:
+    """Return batch audit, shared mask, allele summaries and setting denominators.
+
+    Pass distinct input tables as a list: each schema/optional flag is checked
+    before concatenation. Inputs use native XGB/PA columns plus representation,
+    channel and batch. Thresholds must already match scoring backend/settings;
+    this checks values, not calibration provenance or control adequacy.
+    Complete-pair 'all' requires hits in every retained complete-pair batch.
+    Original producer fields are not overwritten.
+    """
+    selected = pl.DataFrame(settings, schema=SETTING, orient="row")
+    if selected.is_empty() or selected.is_duplicated().any():
+        raise ValueError("Provide distinct, nonempty representation/channel settings")
+    if any(selected[c].dtype != pl.String or selected[c].is_null().any()
+           or selected[c].str.strip_chars().eq("").any() for c in SETTING):
+        raise ValueError("Identity columns must contain nonempty strings")
+    pair_map = {}
+    for pair, batches in biorep_pairs.items():
+        if len(batches) != 2 or len(set(batches)) != 2 or set(batches) & pair_map.keys():
+            raise ValueError("Biological pairs must contain two distinct, non-overlapping batches")
+        pair_map.update(dict.fromkeys(batches, pair))
+    tables = [scores] if isinstance(scores, pl.DataFrame) else scores
+    if not tables:
+        raise ValueError("Provide at least one score table")
+    rows = pl.concat([_batch_hits(frame, task) for frame in tables], how="diagonal_relaxed").join(
+        selected, on=SETTING, how="semi",
+    )
+    if rows.select(KEY).is_duplicated().any():
+        raise ValueError("Duplicate representation/channel/batch/allele score rows")
+    if not set(rows["batch"]) <= pair_map.keys():
+        raise ValueError("Scores contain batches outside the declared biological pairs")
     # The union of observed allele/batch keys is the audit universe; no invented
     # alleles or assumptions that every allele was assayed in all six batches.
     grid = selected.join(rows.select("batch", "allele").unique(), how="cross")

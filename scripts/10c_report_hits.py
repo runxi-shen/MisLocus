@@ -43,7 +43,7 @@ def main():
         frames.append(frame)
         inputs.append({"file": path.name, "sha256": digest, "representation": rep, "batch": batch})
     settings = [(canonical_representation(rep), channel) for rep, channel in args.setting]
-    outputs = hit_cohorts(pl.concat(frames, how="diagonal_relaxed"), args.task, settings)
+    outputs = hit_cohorts(frames, args.task, settings)
     for name, frame in outputs.items():
         frame.write_parquet(args.output_dir / f"{name}.parquet")
     outputs["denominators"].write_csv(args.output_dir / "denominators.csv")

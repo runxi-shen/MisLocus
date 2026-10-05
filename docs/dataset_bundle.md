@@ -181,7 +181,9 @@ Required input columns (CSV or Parquet):
 Both require `channel`. Each `--input REPRESENTATION BATCH FILE` supplies the
 file's identity; existing `representation`/`batch` columns must agree. Use
 experimental-variant summaries, not control classifiers, and consistent scoring
-protocols across files. Duplicate setting×allele×batch rows are rejected.
+protocols across files. Each file's required columns and supplied producer flags
+are validated before concatenation; optional flags may be absent from individual
+files. Duplicate setting×allele×batch rows are rejected.
 
 **Calibration is an input contract, not inferred from a column name.** Do not
 feed the 0.5/False placeholders from `load_single_fold_metrics`, fallback
