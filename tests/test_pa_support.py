@@ -113,6 +113,22 @@ class PASupportChecks(unittest.TestCase):
                 run(frame)
             mean_ap.assert_not_called()
 
+    def test_invalid_ap_or_negative_support_stops_aggregation(self):
+        real_ap = pa.average_precision
+        for column, value in [("average_precision", float("nan")),
+                              ("normalized_average_precision", float("inf")),
+                              ("n_total_pairs", 2)]:  # The G_V query has two positives.
+            def corrupt(*args, **kwargs):
+                scores = real_ap(*args, **kwargs)
+                scores.loc[2, column] = value
+                return scores
+
+            with self.subTest(column=column), patch.object(pa, "average_precision", side_effect=corrupt), \
+                    patch.object(pa, "mean_average_precision") as mean_ap:
+                with self.assertRaisesRegex(ValueError, "positive.*negative"):
+                    run(pool())
+                mean_ap.assert_not_called()
+
     def test_single_loo_error_cannot_produce_partial_calibration(self):
         controls = pl.DataFrame([
             {"Metadata_gene_allele": "G", "Metadata_symbol": "G", "Metadata_node_type": "disease_wt",
@@ -148,27 +164,31 @@ class PASupportChecks(unittest.TestCase):
         self.assertEqual(set(remaining["well_var"]), {"A02", "A03"})
 
     def test_top_level_control_error_vs_explicit_empty_controls(self):
-        for fails in [True, False]:
-            with self.subTest(fails=fails), tempfile.TemporaryDirectory() as tmp:
+        for mode in ["failure", "empty_controls", "empty_queries"]:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
+                features = pool().filter(~pl.col("Metadata_Plate").str.ends_with("T4")) if mode == "empty_queries" else pool()
                 with patch.object(pa, "PHENOTYPIC_ACTIVITY_DIR", root), \
-                        patch.object(pa, "_load_dl", return_value=pool()), \
+                        patch.object(pa, "_load_dl", return_value=features), \
                         patch.object(pa, "_resolve_alleles", return_value=["G_V", "G_W"]), \
                         patch.object(pa, "get_feature_channels", return_value={"EMBED": ["x", "y"]}), \
                         patch.object(pa, "_compute_control_null", return_value=pl.DataFrame(),
-                                     side_effect=RuntimeError("control failed") if fails else None), \
+                                     side_effect=RuntimeError("control failed") if mode == "failure" else None) as control_null, \
                         patch.object(pa, "record") as record, \
                         patch.object(pa.sys, "argv", ["09c_classify_PA.py", "--batch", BATCH,
                                      "--representation", "vit", "--test-split", "t4", "--null-size", "32",
                                      "--max-workers", "1"]):
                     output = root / "vit_t4" / BATCH
-                    if fails:
+                    if mode != "empty_controls":
                         output.mkdir(parents=True)
                         previous = output / "mAP_results.parquet"
                         previous.write_bytes(b"previous result must not be rebound to this failed run")
-                        with self.assertRaisesRegex(RuntimeError, "control failed"):
+                        error, message = (RuntimeError, "control failed") if mode == "failure" else (SystemExit, "^1$")
+                        with self.assertRaisesRegex(error, message):
                             pa.main()
                         record.assert_not_called()
+                        if mode == "empty_queries":
+                            control_null.assert_not_called()
                         self.assertEqual(list(root.rglob("*.parquet")), [previous])
                         self.assertEqual(previous.read_bytes(), b"previous result must not be rebound to this failed run")
                     else:
