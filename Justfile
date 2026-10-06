@@ -122,11 +122,11 @@ classify-all REPS=DEFAULT_REPS:
         just classify-pa "$rep"
     done
 
-# ClinVar Pathogenic-vs-Benign Wilcoxon + cross-rep summary.
-benchmark-clinvar REPS=DEFAULT_REPS:
+# ClinVar + cross-rep summary. SETTINGS must supply nine --setting REP CHANNEL flags.
+benchmark-clinvar REPS SETTINGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    pixi run python scripts/10_benchmark_clinvar.py --representations {{REPS}}
+    pixi run python scripts/10_benchmark_clinvar.py --representations {{REPS}} {{SETTINGS}}
     n_reps=$(echo "{{REPS}}" | wc -w)
     if [ "$n_reps" -ge 2 ]; then
         pixi run python scripts/11_summarize_across_reps.py \
@@ -141,15 +141,15 @@ benchmark-hpa REPS=DEFAULT_REPS:
     pixi run python scripts/10b_benchmark_hpa.py --representations {{REPS}}
 
 # Legacy benchmark chain; see the dataset guide for input and protocol requirements.
-benchmark-all REPS=DEFAULT_REPS:
-    just benchmark-clinvar "{{REPS}}"
+benchmark-all REPS SETTINGS:
+    just benchmark-clinvar "{{REPS}}" "{{SETTINGS}}"
     just benchmark-hpa "{{REPS}}"
 
 # Raw-input chain: preprocess-all + GPU classify-all + benchmark-all. Not for cleaned HF features.
-all REPS=DEFAULT_REPS:
+all REPS SETTINGS:
     just preprocess-all "{{REPS}}"
     just classify-all "{{REPS}}"
-    just benchmark-all "{{REPS}}"
+    just benchmark-all "{{REPS}}" "{{SETTINGS}}"
 
 # Wipe per-batch features + classification + benchmark outputs.
 clean:

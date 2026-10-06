@@ -27,6 +27,7 @@ from prot_loc_benchmark.benchmark.clinvar import (
     average_across_bioreps,
     join_clinvar,
     load_clinvar_annotations,
+    load_cohort_report,
     load_metrics,
     run_wilcoxon_tests,
 )
@@ -117,8 +118,7 @@ def main() -> None:
         "--representations",
         type=canonical_representation,
         nargs="+",
-        default=["cellprofiler", "cytoself", "cytoself_unseen"],
-        help="Representations to benchmark (default: cellprofiler cytoself cytoself_unseen)",
+        help="Optional consistency check against the representations selected by --setting",
     )
     parser.add_argument(
         "--output-dir",
@@ -152,7 +152,27 @@ def main() -> None:
             "test=T4 evaluation. Ignored if --pa is set."
         ),
     )
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--setting", action="append", nargs=2, metavar=("REP", "CHANNEL"),
+                        help="Select each of nine test settings; PA channel names end in _vs_ref")
+    inputs.add_argument("--cohort-report", type=Path,
+                        help="Completed 10c report directory; reuses its task, settings and complete-pair means")
     args = parser.parse_args()
+    if args.cohort_report:
+        if args.representations or args.pa or args.fold_mode != "full":
+            parser.error("--cohort-report already defines the task and settings; do not override them")
+        task, cohort_data = load_cohort_report(args.cohort_report)
+        args.pa = task == "pa"
+        args.representations = sorted(cohort_data["representation"].unique())
+        args.output_dir = args.output_dir or args.cohort_report / ("clinvar_PA" if args.pa else "clinvar")
+    else:
+        args.setting = [(canonical_representation(rep), channel) for rep, channel in args.setting]
+        if len(args.setting) != 9 or len(set(args.setting)) != 9:
+            parser.error("--setting requires nine distinct representation/channel settings")
+        selected_reps = [rep for rep, _ in args.setting]
+        if args.representations is not None and set(args.representations) != set(selected_reps):
+            parser.error("--representations must match the representations in --setting")
+        args.representations = selected_reps
     args.representations = list(dict.fromkeys(args.representations))
 
     logging.basicConfig(
@@ -167,10 +187,12 @@ def main() -> None:
         output_dir = CLINVAR_SINGLE_FOLD_DIR
     else:
         output_dir = CLINVAR_BENCHMARK_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=args.cohort_report is None)
 
     # Step 1: Load metrics
-    if args.pa:
+    if args.cohort_report:
+        metrics = cohort_data
+    elif args.pa:
         log.info("Loading phenotypic activity (mAP) metrics...")
         metrics = load_pa_metrics(args.representations, BIOREP_PAIRS)
     else:
@@ -180,9 +202,13 @@ def main() -> None:
             fold_mode=args.fold_mode,
         )
 
+    if args.setting:
+        settings = pl.DataFrame(args.setting, schema=["representation", "channel"], orient="row")
+        metrics = metrics.join(settings, on=["representation", "channel"], how="semi")
+
     # Step 2: Average across bio-reps
     log.info("Averaging across biological replicates...")
-    averaged = average_across_bioreps(metrics)
+    averaged = metrics if args.cohort_report else average_across_bioreps(metrics)
 
     # Step 2b: Exclude genes if requested
     if args.exclude_genes:
@@ -240,7 +266,8 @@ def main() -> None:
 
     from prot_loc_benchmark.provenance import record
     prov_dirs = [output_dir / rep / "summary" for rep in args.representations]
-    record(output_dirs=prov_dirs)
+    record(output_dirs=prov_dirs, input_paths=[args.cohort_report / name for name in
+           ["report.json", "allele_summary.parquet"]] if args.cohort_report else None)
 
 
 if __name__ == "__main__":

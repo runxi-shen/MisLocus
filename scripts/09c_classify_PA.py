@@ -32,9 +32,11 @@ import sys
 import time
 
 import numpy as np
+import pandas as pd
 import polars as pl
-from copairs.map import average_precision, mean_average_precision
-from copairs.map.multilabel import average_precision as average_precision_multilabel
+from prot_loc_benchmark.copairs_runtime import (
+    average_precision, average_precision_multilabel, mean_average_precision, positive_threads,
+)
 from copairs.matching import assign_reference_index
 
 REFERENCE_COL = "Metadata_reference_index"
@@ -273,6 +275,7 @@ def _run_map(
     max_workers: int | None = None,
     neg_sameby: list[str] | None = None,
     test_split: str | None = None,
+    blas_threads: int = 1,
 ) -> pd.DataFrame:
     """Core mAP computation shared by both comparisons.
 
@@ -285,6 +288,8 @@ def _run_map(
 
     Positive pairs:  same allele + same reference_index (-1), different plates.
     Negative pairs:  differ in allele + reference_index, same neg_sameby group.
+    Queries without matching references are excluded, not removed from the pool:
+    they may still supply cross-plate positives for supported queries.
 
     ``test_split`` filters the per-row APs before per-allele aggregation.
     Currently supports ``"t4"`` (keep only rows on T4 plates). The pool
@@ -295,6 +300,8 @@ def _run_map(
     """
     if neg_sameby is None:
         neg_sameby = ["Metadata_Plate"]
+    if pool_pl.is_empty():
+        return pd.DataFrame()
 
     pool = pool_pl.to_pandas()
     pool = assign_reference_index(
@@ -306,6 +313,24 @@ def _run_map(
 
     non_feat = [c for c in pool.columns if c not in feat_cols]
     feats_np = pool[feat_cols].to_numpy().astype(np.float32)
+
+    query_mask = pool[REFERENCE_COL] == -1
+    if test_split == "t4":
+        query_mask &= pool["Metadata_Plate"].str.endswith("T4")
+    reference_groups = pd.MultiIndex.from_frame(pool.loc[pool[REFERENCE_COL] != -1, neg_sameby])
+    supported = pd.MultiIndex.from_frame(pool[neg_sameby]).isin(reference_groups)
+    missing_reference = query_mask & ~supported
+    logger.info(
+        "Query support (%s): excluding %d/%d query profiles without matching references",
+        label, int(missing_reference.sum()), int(query_mask.sum()),
+    )
+    query_mask &= supported
+    if not query_mask.any():
+        logger.info("%s: no eligible query profiles", label)
+        return pd.DataFrame()
+    norms = np.linalg.norm(feats_np, axis=1)
+    if not np.isfinite(feats_np).all() or not np.isfinite(norms).all() or (norms <= 0).any():
+        raise ValueError("Cosine retrieval requires finite profiles with positive finite norms")
 
     # Strict vs_ref pairing rules.
     # Positives: same variant allele, both with REFERENCE_COL=-1, on
@@ -325,21 +350,16 @@ def _run_map(
         pos_diffby=["Metadata_Plate"],
         neg_sameby=neg_sameby,
         neg_diffby=["Metadata_node_type", REFERENCE_COL],
+        max_workers=max_workers, blas_threads=blas_threads,
     )
 
     # Compute mAP + p-values + BH FDR (variant cells only)
-    ap_variant = ap_scores[ap_scores[REFERENCE_COL] == -1]
-
-    if test_split == "t4":
-        mask = ap_variant["Metadata_Plate"].str.endswith("T4")
-        n_before, n_after = len(ap_variant), int(mask.sum())
-        logger.info(
-            "T4 filter (%s): %d → %d variant rows (%d alleles → %d)",
-            label, n_before, n_after,
-            ap_variant["Metadata_gene_allele"].nunique(),
-            ap_variant.loc[mask, "Metadata_gene_allele"].nunique(),
-        )
-        ap_variant = ap_variant.loc[mask]
+    ap_variant = ap_scores.loc[query_mask.reindex(ap_scores.index)]
+    unsupported = (ap_variant["n_pos_pairs"] <= 0) | (ap_variant["n_total_pairs"] <= ap_variant["n_pos_pairs"])
+    if unsupported.any() or not np.isfinite(
+        ap_variant[["average_precision", "normalized_average_precision"]].to_numpy()
+    ).all():
+        raise ValueError("Unsupported PA queries: finite AP and positive and negative partners are required")
 
     map_scores = mean_average_precision(
         ap_variant,
@@ -347,7 +367,7 @@ def _run_map(
         null_size=null_size,
         threshold=threshold,
         seed=seed,
-        max_workers=max_workers,
+        max_workers=max_workers, blas_threads=blas_threads,
     )
 
     # Prefix columns with comparison label to avoid collisions on merge
@@ -376,6 +396,7 @@ def _compute_map_vs_ref(
     seed: int,
     max_workers: int | None = None,
     test_split: str | None = None,
+    blas_threads: int = 1,
 ) -> pl.DataFrame:
     """mAP: variant cells vs reference (disease_wt) cells of the same gene.
 
@@ -456,7 +477,7 @@ def _compute_map_vs_ref(
         null_size=null_size, threshold=threshold, seed=seed,
         label="vs_ref", max_workers=max_workers,
         neg_sameby=["Metadata_Plate", "Metadata_symbol"],
-        test_split=test_split,
+        test_split=test_split, blas_threads=blas_threads,
     )
     return pl.from_pandas(result)
 
@@ -567,6 +588,7 @@ def _compute_control_null(
     max_workers: int | None,
     test_split: str | None,
     min_cells: int = MIN_CELL_COUNT,
+    blas_threads: int = 1,
 ) -> pl.DataFrame:
     """Empirical control null using leave-one-out (LOO) construction.
 
@@ -587,7 +609,6 @@ def _compute_control_null(
 
     rows: list[pl.DataFrame] = []
     skipped = 0
-    failed = 0
     for allele, platemap, wells, category in groups:
         for w_var in wells:
             w_refs = [w for w in wells if w != w_var]
@@ -596,24 +617,14 @@ def _compute_control_null(
                 skipped += 1
                 continue
             for ch_name, ch_feats in channel_map.items():
-                # A pseudo-variant well can become empty after a test_split
-                # (e.g. T4 dropped that well via QC), which trips an int-div
-                # in copairs. Catch per-(pair × channel) so one bad combo
-                # doesn't void the whole batch's thresholds.
-                try:
-                    ch_ctrl = _compute_map_vs_ref(
-                        pool, [loo_id], ch_feats,
-                        cells_per_site, neg_per_plate, sample_level, aggregate,
-                        null_size, threshold, seed, max_workers,
-                        test_split=test_split,
-                    )
-                except Exception as e:
-                    failed += 1
-                    logger.debug(
-                        "LOO control failed: %s/%s/%s/%s (%s) — skipping",
-                        allele, platemap, w_var, ch_name, e,
-                    )
-                    continue
+                # Empty queries are explicit exclusions. Unexpected failures
+                # must abort rather than calibrate on a silently partial null.
+                ch_ctrl = _compute_map_vs_ref(
+                    pool, [loo_id], ch_feats,
+                    cells_per_site, neg_per_plate, sample_level, aggregate,
+                    null_size, threshold, seed, max_workers,
+                    test_split=test_split, blas_threads=blas_threads,
+                )
                 if ch_ctrl.is_empty():
                     skipped += 1
                     continue
@@ -627,11 +638,8 @@ def _compute_control_null(
                         category=pl.lit(category),
                     )
                 )
-    if skipped or failed:
-        logger.info(
-            "Control null (LOO): skipped=%d (empty result), failed=%d (exception in copairs)",
-            skipped, failed,
-        )
+    if skipped:
+        logger.info("Control null (LOO): skipped=%d (empty result)", skipped)
     if not rows:
         return pl.DataFrame()
     return pl.concat(rows, how="diagonal")
@@ -748,6 +756,7 @@ def _compute_map_hpa(
     threshold: float,
     seed: int,
     max_workers: int | None = None,
+    blas_threads: int = 1,
 ) -> pl.DataFrame:
     """mAP: reference (disease_wt) genes sharing HPA organelle labels.
 
@@ -763,6 +772,8 @@ def _compute_map_hpa(
       - "fov": 1 median profile per gene × plate × site (most points, pseudo-replicated)
     """
     unit_col = _resolve_well_col(df_full) if sample_level == "well" else _SAMPLE_UNIT_COL[sample_level]
+    max_workers = positive_threads(16 if max_workers is None else max_workers)
+    blas_threads = positive_threads(blas_threads)
     gene_to_labels = _load_hpa_labels(hpa_threshold)
     if not gene_to_labels:
         logger.warning("HPA: no genes with organelle scores ≥ %s", hpa_threshold)
@@ -821,6 +832,7 @@ def _compute_map_hpa(
             neg_sameby=[],
             neg_diffby=["Metadata_symbol", HPA_LABELS_COL],
             multilabel_col=HPA_LABELS_COL,
+            max_workers=max_workers, blas_threads=blas_threads,
             progress_bar=False,
         )
     except Exception as e:
@@ -834,7 +846,7 @@ def _compute_map_hpa(
         null_size=null_size,
         threshold=threshold,
         seed=seed,
-        max_workers=max_workers,
+        max_workers=max_workers, blas_threads=blas_threads,
         progress_bar=False,
     )
     map_scores = map_scores.rename(columns={
@@ -872,6 +884,7 @@ def run_phenotypic_activity(
     control_null: bool = True,
     null_percentile: float = NULL_PERCENTILE,
     ctrl_null_size: int = 1_000,
+    blas_threads: int = 1,
 ) -> None:
     """Run phenotypic activity assessment for one batch + representation.
 
@@ -960,7 +973,7 @@ def run_phenotypic_activity(
 
         ch_results = _compute_map_vs_ref(
             df_full, alleles, ch_feats, cells_per_site, neg_per_plate, sample_level, aggregate, null_size, threshold, seed, max_workers,
-            test_split=test_split,
+            test_split=test_split, blas_threads=blas_threads,
         )
 
         if ch_results.is_empty():
@@ -996,15 +1009,12 @@ def run_phenotypic_activity(
     # ── Empirical control null (NC + PC, leave-one-out) ──────────────
     if control_null:
         logger.info("─── Control null (LOO NC+PC, p%d) ───", int(null_percentile))
-        try:
-            control_results = _compute_control_null(
-                df_full, channel_map,
-                cells_per_site, neg_per_plate, sample_level, aggregate,
-                ctrl_null_size, threshold, seed, max_workers, test_split,
-            )
-        except Exception as e:
-            logger.warning("Control null failed (%s) — skipping hit calls", e)
-            control_results = pl.DataFrame()
+        control_results = _compute_control_null(
+            df_full, channel_map,
+            cells_per_site, neg_per_plate, sample_level, aggregate,
+            ctrl_null_size, threshold, seed, max_workers, test_split,
+            blas_threads=blas_threads,
+        )
 
         if control_results.is_empty():
             logger.warning("Control null: no mAP scores produced — skipping hit calls")
@@ -1074,6 +1084,7 @@ def run_phenotypic_activity(
             map_hpa = _compute_map_hpa(
                 df_full, ch_feats, cells_per_site, sample_level, aggregate,
                 hpa_threshold, hpa_consensus, null_size, threshold, seed, max_workers,
+                blas_threads=blas_threads,
             )
             if map_hpa.is_empty():
                 continue
@@ -1199,11 +1210,11 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--max-workers",
-        type=int,
-        default=None,
-        help="Number of threads for p-value computation (default: all available)",
+        "--max-workers", type=positive_threads, default=16,
+        help="Maximum copairs workers for similarities and nulls (default: 16)",
     )
+    parser.add_argument("--blas-threads", type=positive_threads, default=1,
+                        help="BLAS threads per worker (default: 1)")
     parser.add_argument(
         "--cp-feature-file",
         choices=["normalized", "features"],
@@ -1263,30 +1274,30 @@ def main() -> None:
     test_split = None if args.test_split == "none" else args.test_split
     rep_suffix = f"_{test_split}" if test_split else ""
     output_dir = PHENOTYPIC_ACTIVITY_DIR / f"{args.representation}{rep_suffix}" / args.batch
-    try:
-        run_phenotypic_activity(
-            batch_id=args.batch,
-            representation=args.representation,
-            scope=args.scope,
-            cells_per_site=args.cells_per_site,
-            neg_per_plate=args.neg_per_plate,
-            sample_level=args.sample_level,
-            aggregate=args.aggregate,
-            hpa=args.hpa,
-            hpa_threshold=args.hpa_threshold,
-            hpa_consensus=args.hpa_consensus,
-            null_size=args.null_size,
-            threshold=args.threshold,
-            max_workers=args.max_workers,
-            cp_feature_file=args.cp_feature_file,
-            test_split=test_split,
-            control_null=args.control_null,
-            null_percentile=args.null_percentile,
-            ctrl_null_size=args.ctrl_null_size,
-        )
-    finally:
-        if output_dir.exists():
-            record(output_dirs=[output_dir])
+    run_phenotypic_activity(
+        batch_id=args.batch,
+        representation=args.representation,
+        scope=args.scope,
+        cells_per_site=args.cells_per_site,
+        neg_per_plate=args.neg_per_plate,
+        sample_level=args.sample_level,
+        aggregate=args.aggregate,
+        hpa=args.hpa,
+        hpa_threshold=args.hpa_threshold,
+        hpa_consensus=args.hpa_consensus,
+        null_size=args.null_size,
+        threshold=args.threshold,
+        max_workers=args.max_workers,
+        blas_threads=args.blas_threads,
+        cp_feature_file=args.cp_feature_file,
+        test_split=test_split,
+        control_null=args.control_null,
+        null_percentile=args.null_percentile,
+        ctrl_null_size=args.ctrl_null_size,
+    )
+    # A failed rerun must not attach its provenance to previous result files.
+    if output_dir.exists():
+        record(output_dirs=[output_dir])
 
 
 if __name__ == "__main__":

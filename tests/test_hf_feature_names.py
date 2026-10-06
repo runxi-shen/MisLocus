@@ -289,7 +289,8 @@ class HFFeatureNameChecks(unittest.TestCase):
             hpa.main()
         load.assert_called_once_with('vit', [BATCH], test_split=None)
         with patch.object(sys, 'argv', ['script', '--representations', 'morphem', 'vit',
-                                       '--output-dir', str(self.root / 'clinical')]), patch.object(
+                                       '--output-dir', str(self.root / 'clinical'),
+                                       *[arg for i in range(9) for arg in ('--setting', 'morphem', f'channel{i}')]]), patch.object(
             clinical, 'load_metrics', side_effect=RuntimeError('stop before statistics')
         ) as load, self.assertRaisesRegex(RuntimeError, 'stop before statistics'):
             clinical.main()

@@ -164,6 +164,25 @@ also requires `below_corrected_p_vs_ref` (BH-adjusted p < 0.05). Missing support
 or calibration is not evidence of a non-hit. Reporting-cohort filtering must
 not redefine the producer's null or BH family.
 
+Before aggregation, PA excludes queries lacking same-plate/same-gene references
+and logs their count. Their profiles remain in the full pool as possible
+cross-plate positives for other queries. With no eligible queries, the helper
+returns an empty result; a run with no scored channels exits without new score
+tables. Any pool used for scoring must have finite profiles with positive finite
+norms, and retained queries must have positive and negative partners plus finite
+AP/normalized AP. Invalid inputs fail rather than produce degenerate scores.
+
+LOO controls use the same checks. Explicit empty-query runs are skipped; unexpected
+control errors now abort instead of silently calibrating on a partial set or
+continuing as if controls were merely absent. A genuinely empty control set still
+produces null thresholds/hit flags, which the reporting task treats as unavailable.
+These safeguards can change eligibility, BH results or control calibration on
+unsupported inputs; they are not a claim that historical numerical results are
+unchanged. CLI provenance is recorded only after a successful run; a failed rerun
+must not rebind previous results to its command. Use fresh output locations:
+output-directory reuse is unchanged, and old files left after a failed run must
+not be consumed as new results.
+
 ### Calibrated hits and shared cohorts
 
 `10c_report_hits.py` reads **already-calibrated batch score tables**. It does
@@ -238,6 +257,26 @@ output directories are refused. A failed run may leave an incomplete directory;
 do not use it unless `report.json` exists. This reporting task does not yet
 replace the older ClinVar/predictor readers.
 
+### Execution and statistical settings
+
+Both PA and HPA expose `--max-workers` (default **16**) and `--blas-threads`
+(default **1**). These bound copairs similarity/null workers and BLAS threads;
+they do not subsample profiles or change null-draw counts. For small-memory
+verification, pass `--max-workers 1 --blas-threads 1` explicitly. Copairs calls
+within a process are serial; run concurrent scoring jobs in separate processes.
+Each mAP call uses its own temporary null cache, independent of earlier calls.
+
+ClinVar requires **nine selected representation/channel settings per task**, with
+separate nine-test BH corrections for coarse and strict labels—not one18-test
+family. Select them with repeated `10_benchmark_clinvar.py --setting REP CHANNEL`
+arguments (PA channels include `_vs_ref`). If `--representations` is also supplied,
+it must agree. The legacy `benchmark-clinvar`, `benchmark-all` and `all` recipes
+require two quoted arguments: the representation list and the nine `--setting`
+flags; there is no implicit setting family. Missing/insufficient tests fail rather
+than shrink the family. Duplicate annotations use column-wise consensus: a
+strict-label conflict does not discard an agreed coarse label. Input cohort,
+calibration and model identity still require independent checks.
+
 ### Script map and downstream prerequisites
 
 | Script | Reads → writes / purpose |
@@ -257,7 +296,14 @@ replace the older ClinVar/predictor readers.
 | `10c_report_hits.py` | Calibrated batch scores → shared-support hits, cohort summaries and denominators. |
 | `11_summarize_across_reps.py` | Existing `10` summaries → cross-representation tables and plots. |
 
-For ClinVar, prepare the intended biological-replicate batches (see
+For matched ClinVar comparisons, reuse the completed `10c` report:
+`python scripts/10_benchmark_clinvar.py --cohort-report PATH_TO_REPORT`.
+This reads the report's task, nine settings and `complete_pair_any` means without
+re-averaging or counting an allele once per pair. Outputs go to a new `clinvar`
+(XGB) or `clinvar_PA` (PA) subdirectory; overrides of task/settings and existing
+output directories are rejected. Calibration/model lineage remains a precondition.
+
+For the legacy raw-score route, prepare the intended biological-replicate batches (see
 [batch identifiers](#batch-identifiers)) and select representations explicitly;
 one batch is not a complete paired comparison. `10` defaults to
 four-fold XGBoost summaries; `--fold-mode t4-only` selects T4-test metrics.
