@@ -29,9 +29,9 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 import time
+from pathlib import Path
 
 import polars as pl
 
@@ -40,7 +40,6 @@ from prot_loc_benchmark.classification import (
     build_control_pairs,
     build_cpc_pairs,
     build_experimental_pairs,
-    compute_null_threshold,
     filter_pairs_by_scope,
     generate_folds,
     get_feature_channels,
@@ -56,9 +55,13 @@ from prot_loc_benchmark.config import (
     CLASSIFICATION_OUTPUT_DIR,
     INTERIM_DIR,
     MIN_CELL_COUNT,
+    XGBOOST_PARAMS,
     REP_FEATURE_FILES,
     canonical_representation,
 )
+
+from prot_loc_benchmark.classification.calibration import calibration_context, load_calibration, save_calibration
+from prot_loc_benchmark.provenance import save_json, sha256
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -76,6 +79,16 @@ def _parse_template_number(plate: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _execute(tasks, directory, device, workers, params):
+    metrics, importance, info, _ = run_classifier_tasks(
+        tasks, device=device, output_dir=directory, workers=workers, xgb_params=params)
+    if not metrics:
+        raise ValueError("No classifiers produced results")
+    for name, rows in [("metrics", metrics), ("feat_importance", importance), ("classifier_info", info)]:
+        pl.DataFrame(rows).write_csv(directory / f"{name}.csv")
+    return pl.DataFrame(metrics)
+
+
 def classify_batch(
     batch_id: str,
     representation: str,
@@ -83,9 +96,19 @@ def classify_batch(
     use_gpu: bool = False,
     unseen_only: bool = False,
     channels: list[str] | None = None,
+    test_split: str | None = None,
+    workers: int = 2,
+    threads: int = 1,
+    calibration_dir: Path | None = None,
 ) -> None:
     """Run full classification pipeline for one batch + representation."""
     t0 = time.time()
+    if workers < 1 or threads < 1:
+        raise ValueError("workers and threads must be positive")
+    if test_split not in (None, "t4") or (unseen_only and test_split):
+        raise ValueError("T4 evaluation cannot be combined with unseen-only")
+    if scope == "control" and calibration_dir is not None:
+        raise ValueError("A control run cannot reuse calibration")
 
     # ── Resolve paths and config ─────────────────────────────────────
     representation = canonical_representation(representation)
@@ -104,9 +127,15 @@ def classify_batch(
         logger.error("Features not found: %s", features_path)
         sys.exit(1)
 
-    suffix = "_unseen" if unseen_only else ""
+    if test_split and layout != "single_rep":
+        raise ValueError("T4 evaluation requires single_rep layout")
+    suffix = "_t4" if test_split else ("_unseen" if unseen_only else "")
     output_dir = CLASSIFICATION_OUTPUT_DIR / (representation + suffix) / batch_id
-    output_dir.mkdir(parents=True, exist_ok=True)
+    control_dir = output_dir / "controls"
+    if scope != "control" and output_dir.exists() and any(p.name != "controls" for p in output_dir.iterdir()):
+        raise FileExistsError(output_dir)
+    if scope == "control" and control_dir.exists():
+        raise FileExistsError(control_dir)
 
     logger.info("=" * 70)
     logger.info("Classification: batch=%s rep=%s layout=%s scope=%s unseen_only=%s",
@@ -114,13 +143,12 @@ def classify_batch(
     logger.info("=" * 70)
 
     # ── Device selection ─────────────────────────────────────────────
-    if use_gpu:
-        os.environ["MISLOCUS_CLASSIFIER_BACKEND"] = "gpu"
-    device = select_device()
+    device = select_device("gpu" if use_gpu else None)
     logger.info("Device: %s", device)
 
     # ── Load features ────────────────────────────────────────────────
     logger.info("Loading features from %s", features_path)
+    input_sha256 = sha256(features_path)
     lf = pl.scan_parquet(str(features_path))
     schema = lf.collect_schema()
     all_cols = schema.names()
@@ -133,6 +161,8 @@ def classify_batch(
     logger.info("Collecting full dataframe into memory...")
     t_load = time.time()
     df_full = lf.collect()
+    if not df_full.select(pl.all_horizontal(pl.col(feat_cols).is_finite().fill_null(False)).all()).item():
+        raise ValueError("Classification requires finite features")
     logger.info("Loaded %d rows in %.1fs", df_full.height, time.time() - t_load)
 
     # Filter to unseen plates (T3+T4) for strict DL evaluation
@@ -161,6 +191,8 @@ def classify_batch(
 
     # Filter by scope
     all_pairs = filter_pairs_by_scope(all_pairs, scope)
+    if calibration_dir is None and {p.pair_id for p in all_pairs if p.is_control} != {p.pair_id for p in control_pairs}:
+        raise ValueError("Calibration requires the full NC+PC scope or --calibration-dir")
     if not all_pairs:
         logger.error("No pairs to classify after scope filter")
         sys.exit(1)
@@ -191,7 +223,7 @@ def classify_batch(
             n_skipped += 1
             continue
 
-        folds = generate_folds(pair_df, layout)
+        folds = generate_folds(pair_df, layout, test_split=test_split)
         if not folds:
             n_skipped += 1
             continue
@@ -216,45 +248,31 @@ def classify_batch(
         len(tasks), n_pairs, n_skipped,
     )
 
-    metrics_rows, importance_rows, info_rows, n_classifiers = run_classifier_tasks(
-        tasks, device=device, output_dir=output_dir,
-    )
-
-    # ── Write output files ───────────────────────────────────────────
-    logger.info(
-        "Classification complete: %d classifiers, %d skipped pairs",
-        n_classifiers,
-        n_skipped,
-    )
-
-    if not metrics_rows:
-        logger.warning("No classifiers produced results")
+    params = {**XGBOOST_PARAMS, "n_jobs": threads}
+    context = calibration_context(features_path, representation, batch_id, channel_features,
+                                  test_split or ("unseen_lopo" if unseen_only else "lopo"), params, device)
+    if context["features_sha256"] != input_sha256:
+        raise ValueError("Features changed during loading")
+    if calibration_dir is not None:
+        control_dir = Path(calibration_dir).resolve()
+        null_thresholds, control_metrics = load_calibration(control_dir, context)
+    else:
+        control_tasks = [t for t in tasks if t["pair"].is_control]
+        if not control_tasks:
+            raise ValueError("Experimental runs require --calibration-dir or same-run NC+PC controls")
+        control_dir.mkdir(parents=True, exist_ok=False)
+        control_metrics = _execute(control_tasks, control_dir, device, workers, params)
+        null_thresholds = save_calibration(control_dir, context)
+    if scope == "control":
         return
-
-    metrics_df = pl.DataFrame(metrics_rows)
-    metrics_df.write_csv(str(output_dir / "metrics.csv"))
-    logger.info("Wrote metrics.csv (%d rows)", len(metrics_rows))
-
-    pl.DataFrame(importance_rows).write_csv(str(output_dir / "feat_importance.csv"))
-    logger.info("Wrote feat_importance.csv (%d rows)", len(importance_rows))
-
-    pl.DataFrame(info_rows).write_csv(str(output_dir / "classifier_info.csv"))
-    logger.info("Wrote classifier_info.csv (%d rows)", len(info_rows))
-
-    # ── Null threshold + allele summary ──────────────────────────────
-    # Control null distribution: NC + PC only
-    control_metrics = metrics_df.filter(pl.col("category").is_in(["NC", "PC"]))
-    # Experimental: Exp + cPC (both get ref-vs-var classification)
-    exp_metrics = metrics_df.filter(pl.col("category").is_in(["Exp", "cPC"]))
-
-    null_thresholds = compute_null_threshold(control_metrics)
-
-    # Log category breakdown
-    for cat, grp in metrics_df.group_by("category"):
-        logger.info("  Category %s: %d classifiers", cat[0], grp.height)
+    # A controls-only parent is allowed; never reuse any experimental output.
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "started").touch(exist_ok=False)
+    exp_tasks = [t for t in tasks if not t["pair"].is_control]
+    exp_metrics = _execute(exp_tasks, output_dir, device, workers, params)
 
     if not exp_metrics.is_empty():
-        summary = aggregate_allele_metrics(exp_metrics, null_thresholds)
+        summary = aggregate_allele_metrics(exp_metrics, null_thresholds, **({"min_classifiers": 1} if test_split else {}))
         if not summary.is_empty():
             summary.write_csv(str(output_dir / "metrics_summary.csv"))
             n_hits = int(summary["is_hit"].sum()) if "is_hit" in summary.columns else 0
@@ -267,7 +285,7 @@ def classify_batch(
             # ── Wide-format summary (one row per allele, columns per channel) ─
             write_wide_summary(summary, output_dir, batch_id)
         else:
-            logger.info("No alleles passed aggregation filters")
+            raise ValueError("No alleles passed aggregation filters")
     else:
         logger.info("No experimental metrics to aggregate (scope may be control-only)")
 
@@ -275,6 +293,9 @@ def classify_batch(
     if not control_metrics.is_empty() and not exp_metrics.is_empty():
         plot_auroc_distributions(control_metrics, exp_metrics, output_dir, batch_id)
 
+    save_json(output_dir / "completion.json", dict(status="complete", context=context,
+        calibration_dir=str(control_dir.resolve()), calibration_sha256=sha256(control_dir / "calibration.json"),
+        summary_sha256=sha256(output_dir / "metrics_summary.csv")))
     elapsed = time.time() - t0
     logger.info("=" * 70)
     logger.info("Done in %.1f min", elapsed / 60)
@@ -329,9 +350,13 @@ def main() -> None:
             "~2/3 of runtime)."
         ),
     )
+    parser.add_argument("--test-split", choices=["t4"], help="Train T1/T2/T3, test T4; separate _t4 outputs")
+    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--calibration-dir", type=Path, help="Completed controls from matching input/settings/backend")
     args = parser.parse_args()
 
-    suffix = "_unseen" if args.unseen_only else ""
+    suffix = "_t4" if args.test_split else ("_unseen" if args.unseen_only else "")
     output_dir = CLASSIFICATION_OUTPUT_DIR / (args.representation + suffix) / args.batch
 
     channels = (
@@ -339,19 +364,15 @@ def main() -> None:
         if args.channels else None
     )
 
-    try:
-        classify_batch(
-            batch_id=args.batch,
-            representation=args.representation,
-            scope=args.scope,
-            use_gpu=args.gpu,
-            unseen_only=args.unseen_only,
-            channels=channels,
-        )
-    finally:
-        if output_dir.exists():
-            from prot_loc_benchmark.provenance import record
-            record(output_dirs=[output_dir])
+    classify_batch(
+        batch_id=args.batch, representation=args.representation, scope=args.scope,
+        use_gpu=args.gpu, unseen_only=args.unseen_only, channels=channels,
+        test_split=args.test_split, workers=args.workers, threads=args.threads,
+        calibration_dir=args.calibration_dir,
+    )
+    from prot_loc_benchmark.provenance import record
+    if output_dir.exists():
+        record(output_dirs=[output_dir / "controls" if args.scope == "control" else output_dir])
 
 
 if __name__ == "__main__":

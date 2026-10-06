@@ -1,13 +1,13 @@
-"""XGBoost training, prediction, and device selection."""
-
+"""XGBoost training with explicit GPU allocation and no silent backend fallback."""
 from __future__ import annotations
 
+import json
 import logging
 import os
-import subprocess
 
 import numpy as np
 import polars as pl
+import xgboost
 from xgboost import XGBClassifier
 
 from prot_loc_benchmark.config import XGBOOST_PARAMS
@@ -15,107 +15,19 @@ from prot_loc_benchmark.config import XGBOOST_PARAMS
 logger = logging.getLogger(__name__)
 
 
-def _count_gpus() -> int:
-    """Count available NVIDIA GPUs via nvidia-smi."""
-    try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if out.returncode == 0:
-            return len(out.stdout.strip().split("\n"))
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return 0
-
-
-# Optional fallback search paths for NVIDIA CUDA runtime libraries (NVIDIA pip
-# wheels under .../site-packages/nvidia/<sublib>/lib). Set the
-# PROT_LOC_BENCHMARK_CUDA_LIB_PATH environment variable (colon-separated) to
-# add site-specific locations; the gpu pixi env normally provides everything
-# needed without this fallback.
-_CUDA_LIB_SEARCH_PATHS = [
-    p for p in os.environ.get("PROT_LOC_BENCHMARK_CUDA_LIB_PATH", "").split(":") if p
-]
-
-_CUDA_SUBLIBS = [
-    "cuda_runtime", "cublas", "cusolver", "cusparse",
-    "curand", "cufft", "cuda_nvrtc", "nvjitlink",
-]
-
-
-def _ensure_cuda_libs() -> None:
-    """Add NVIDIA CUDA libraries to LD_LIBRARY_PATH if not already present."""
-    current = os.environ.get("LD_LIBRARY_PATH", "")
-    if "nvidia" in current and "cuda_runtime" in current:
-        return  # Already configured
-
-    for base in _CUDA_LIB_SEARCH_PATHS:
-        lib_dirs = []
-        for sublib in _CUDA_SUBLIBS:
-            d = os.path.join(base, sublib, "lib")
-            if os.path.isdir(d):
-                lib_dirs.append(d)
-
-        if lib_dirs:
-            new_path = ":".join(lib_dirs)
-            if current:
-                new_path = f"{new_path}:{current}"
-            os.environ["LD_LIBRARY_PATH"] = new_path
-            logger.info("Added %d CUDA lib dirs from %s", len(lib_dirs), base)
-            return
-
-    logger.warning("No CUDA libraries found in known locations")
-
-
-def select_device() -> str:
-    """Select compute device based on environment variable.
-
-    Reads ``MISLOCUS_CLASSIFIER_BACKEND``:
-    - "cpu" → "cpu"
-    - "gpu" → pick first available GPU (falls back to CPU)
-    - "auto" (default) → GPU if available, else CPU
-
-    Returns "cpu" or "cuda:N".
-    """
-    backend = os.environ.get("MISLOCUS_CLASSIFIER_BACKEND", "auto").strip().lower()
-
-    if backend == "cpu":
+def select_device(backend: str | None = None) -> str:
+    """CPU by default; GPU requires one explicitly allocated visible device."""
+    backend = (backend or os.environ.get("MISLOCUS_CLASSIFIER_BACKEND", "cpu")).strip().lower()
+    if backend in ("cpu", "auto"):
         return "cpu"
-
-    n_gpus = _count_gpus()
-    if n_gpus == 0:
-        if backend == "gpu":
-            logger.warning("GPU requested but no CUDA devices found, falling back to CPU")
-        return "cpu"
-
-    # Ensure CUDA runtime libraries are on LD_LIBRARY_PATH
-    _ensure_cuda_libs()
-
-    # Try CuPy for smart GPU selection (least memory usage)
-    try:
-        import cupy as cp
-
-        best_gpu = 0
-        min_used = float("inf")
-        for i in range(n_gpus):
-            mem_free, mem_total = cp.cuda.Device(i).mem_info
-            mem_used = mem_total - mem_free
-            if mem_used < min_used:
-                min_used = mem_used
-                best_gpu = i
-
-        device = f"cuda:{best_gpu}"
-    except ImportError:
-        device = "cuda:0"
-    except Exception:
-        logger.warning("CuPy GPU detection failed, defaulting to cuda:0", exc_info=True)
-        device = "cuda:0"
-
-    logger.info("Selected GPU device: %s (%d GPUs available)", device, n_gpus)
-    return device
+    if backend != "gpu":
+        raise ValueError(f"Unknown classifier backend: {backend}")
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+    if not visible or visible == "-1" or "," in visible:
+        raise ValueError("GPU execution requires one explicit CUDA_VISIBLE_DEVICES allocation")
+    if not xgboost.build_info().get("USE_CUDA", False):
+        raise ValueError("Installed XGBoost has no CUDA support")
+    return "cuda:0"
 
 
 def train_and_predict(
@@ -126,11 +38,7 @@ def train_and_predict(
     device: str = "cpu",
     xgb_params: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, float]] | None:
-    """Train XGBoost and return test predictions.
-
-    Returns (predictions, true_labels, feature_importances) or None if
-    the training data has extreme class imbalance (>100:1).
-    """
+    """Fit one classifier; refuse a requested/actual backend mismatch."""
     params = {**XGBOOST_PARAMS, **(xgb_params or {})}
 
     train_labels = train_df[label_col].to_numpy()
@@ -147,10 +55,7 @@ def train_and_predict(
         return None
 
     params["scale_pos_weight"] = n_neg / n_pos
-
-    if device != "cpu":
-        params["device"] = device
-        params.pop("n_jobs", None)
+    params["device"] = device
 
     X_train = train_df.select(feature_cols).to_numpy().astype(np.float32)
     X_test = test_df.select(feature_cols).to_numpy().astype(np.float32)
@@ -159,8 +64,14 @@ def train_and_predict(
 
     clf = XGBClassifier(**params)
     clf.fit(X_train, y_train)
+    actual = json.loads(clf.get_booster().save_config())["learner"]["generic_param"]["device"]
+    if actual != device:
+        raise RuntimeError(f"XGBoost device fallback: requested {device}, used {actual}")
 
-    preds = clf.predict_proba(X_test)[:, 1]
+    if device == "cpu":
+        preds = clf.predict_proba(X_test)[:, 1]
+    else:
+        preds = clf.get_booster().predict(xgboost.DMatrix(X_test, nthread=params["n_jobs"]))
     importances = dict(zip(feature_cols, clf.feature_importances_.tolist()))
 
     return preds, y_test, importances

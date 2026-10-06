@@ -106,16 +106,23 @@ export MISLOCUS_CLASSIFIER_BACKEND=cpu
 # One imaging channel; keep controls and variants in the same invocation.
 .pixi/envs/default/bin/python scripts/09_classify.py \
     --batch 2024_02_06_Batch_8 --representation morphem \
-    --scope all --channels GFP
+    --scope all --channels GFP --test-split t4 --workers 2 --threads 1
 ```
 
-Outputs go to `data/processed/classification/vit/2024_02_06_Batch_8/`:
+Outputs go to `data/processed/classification/vit_t4/2024_02_06_Batch_8/`:
 `predictions.parquet`, `metrics.csv`, `classifier_info.csv`,
 `metrics_summary.csv`, and additional feature-importance/summary files.
-The summary uses controls from this invocation. Running `--scope control`
-followed by an allele-only run does **not** reuse the earlier calibration;
-it writes to the same directory. Use a fresh checkout/data directory for a
-separate run rather than overwriting results you need to retain.
+The summary uses same-run NC+PC controls, saved separately in `controls/`.
+Alternatively run `--scope control` first, then `--scope exp --calibration-dir
+PATH/TO/controls` with the same input, channels, split, threads and backend.
+Reuse validates input/code/runtime/settings and output hashes; mismatches fail.
+Keep that control directory with the experimental outputs. Completed summaries
+bind the calibration and summary bytes; partial runs are not completed results.
+Existing experimental outputs are refused, including failed partial runs.
+T4 mode trains T1/T2/T3 and uses nearest-interpolated control p95 (strict >).
+Without `--test-split t4`, legacy LOPO remains available with a distinct calibration.
+The XGB defaults are two concurrent classifiers, one thread each, seed0;
+`--workers`/`--threads` are configurable. No encoder training or normalization is added.
 
 For a PA command with inexpensive permutation settings:
 
@@ -186,8 +193,8 @@ are validated before concatenation; optional flags may be absent from individual
 files. Duplicate setting×allele×batch rows are rejected.
 
 **Calibration is an input contract, not inferred from a column name.** Do not
-feed the 0.5/False placeholders from `load_single_fold_metrics`, fallback
-thresholds from runs without valid controls, or the 32-draw PA smoke outputs
+feed old 0.5/False placeholders, uncalibrated legacy single-fold results
+(now null threshold/hit/SD), or the 32-draw PA smoke outputs
 into scientific hit reporting. The script rejects contradictory producer flags
 when present, but cannot establish that an otherwise plausible threshold is
 real or matched. The full producer-to-report admission path is separate work.
@@ -295,10 +302,10 @@ Inspect current arguments without running an analysis:
 
 ### GPU and optional model tools
 
-The CPU commands explicitly set `MISLOCUS_CLASSIFIER_BACKEND=cpu`; omitting
-`--gpu` alone does not force CPU because the default backend is automatic.
-GPU XGBoost uses the `gpu` environment (CUDA 12 requirement) and `09 --gpu`.
-Device selection can fall back to CPU: check the actual backend in the log.
+CPU is the default (`auto` also means CPU, never GPU discovery).
+GPU XGBoost requires the `gpu` environment and exactly one explicitly allocated
+`CUDA_VISIBLE_DEVICES` entry plus `09 --gpu` (or backend environment `gpu`).
+A missing GPU or XGBoost backend fallback is an error, not CPU calibration.
 Never substitute CPU calibration for GPU scores, or reuse controls computed
 with different scoring settings.
 

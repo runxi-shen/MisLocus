@@ -172,7 +172,8 @@ XGBOOST_PARAMS: dict[str, object] = {
     "n_estimators": 150,
     "learning_rate": 0.05,
     "tree_method": "hist",
-    "n_jobs": 4,
+    "n_jobs": 1,
+    "random_state": 0,
 }
 
 # Minimum cell count per class in a classifier
