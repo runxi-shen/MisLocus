@@ -257,6 +257,23 @@ output directories are refused. A failed run may leave an incomplete directory;
 do not use it unless `report.json` exists. This reporting task does not yet
 replace the older ClinVar/predictor readers.
 
+### Execution and statistical settings
+
+Both PA and HPA expose `--max-workers` (default **16**) and `--blas-threads`
+(default **1**). These bound copairs similarity/null workers and BLAS threads;
+they do not subsample profiles or change null-draw counts. For small-memory
+verification, pass `--max-workers 1 --blas-threads 1` explicitly. Copairs calls
+within a process are serial; run concurrent scoring jobs in separate processes.
+Each mAP call uses its own temporary null cache, independent of earlier calls.
+
+ClinVar requires **nine selected representation/channel settings per task**, with
+separate nine-test BH corrections for coarse and strict labels—not one18-test
+family. Select them with repeated `10_benchmark_clinvar.py --setting REP CHANNEL`
+arguments (PA channels include `_vs_ref`). Missing/insufficient tests fail rather
+than shrink the family. Duplicate annotations use column-wise consensus: a
+strict-label conflict does not discard an agreed coarse label. Input cohort,
+calibration and model identity still require independent checks.
+
 ### Script map and downstream prerequisites
 
 | Script | Reads → writes / purpose |

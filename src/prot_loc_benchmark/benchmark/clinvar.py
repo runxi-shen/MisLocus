@@ -142,12 +142,16 @@ def load_clinvar_annotations() -> pl.DataFrame:
     """Load ClinVar annotations from the merged allele collection.
 
     Returns DataFrame with columns: gene_variant, clinvar_clnsig_clean,
-    clinvar_clnsig_clean_pp_strict (deduplicated on gene_variant).
+    clinvar_clnsig_clean_pp_strict. Conflicting duplicates are unavailable
+    independently in each label column; agreement in another column is retained.
     """
     df = pl.read_parquet(
         ALLELE_COLLECTION_PATH,
         columns=["gene_variant", "clinvar_clnsig_clean", "clinvar_clnsig_clean_pp_strict"],
-    ).unique(subset=["gene_variant"])
+    ).group_by("gene_variant").agg(
+        pl.when(pl.col(c).n_unique() == 1).then(pl.col(c).first()).otherwise(None).alias(c)
+        for c in ["clinvar_clnsig_clean", "clinvar_clnsig_clean_pp_strict"]
+    )
     log.info("Allele collection: %d unique variants", len(df))
     return df
 
@@ -164,7 +168,9 @@ def join_clinvar(averaged: pl.DataFrame, clinvar: pl.DataFrame) -> pl.DataFrame:
         right_on="gene_variant",
         how="left",
     )
-    annotated = joined.filter(pl.col("clinvar_clnsig_clean").is_not_null())
+    annotated = joined.filter(pl.any_horizontal(
+        pl.col("clinvar_clnsig_clean", "clinvar_clnsig_clean_pp_strict").is_not_null()
+    ))
     n_after = annotated["allele_var"].n_unique()
     log.info(
         "ClinVar join: %d → %d alleles (%d dropped, no annotation)",
@@ -185,8 +191,12 @@ def run_wilcoxon_tests(data: pl.DataFrame) -> pl.DataFrame:
     1. clinvar_clnsig_clean: Pathogenic vs Benign (5-cat)
     2. clinvar_clnsig_clean_pp_strict: Pathogenic vs Benign (7-cat, strict split)
 
-    Returns DataFrame with test results and BH-corrected p-values.
+    Input must contain one task's nine selected representation/channel settings.
+    BH is separate for each coarse/strict comparison, never pooled across18 tests.
+    Missing tests are an error, not a silently smaller correction family.
     """
+    if data.select("representation", "channel").unique().height != 9:
+        raise ValueError("ClinVar requires nine selected representation/channel settings")
     results = []
     for rep in sorted(data["representation"].unique().to_list()):
         rep_data = data.filter(pl.col("representation") == rep)
@@ -198,10 +208,10 @@ def run_wilcoxon_tests(data: pl.DataFrame) -> pl.DataFrame:
                 ("Pathogenic_vs_Benign_strict", "clinvar_clnsig_clean_pp_strict", "Pathogenic", "Benign"),
             ]:
                 vals_a = ch_data.filter(
-                    (pl.col(col) == group_a) & pl.col("auroc_avg").is_not_nan()
+                    (pl.col(col) == group_a) & pl.col("auroc_avg").is_finite()
                 )["auroc_avg"].to_numpy()
                 vals_b = ch_data.filter(
-                    (pl.col(col) == group_b) & pl.col("auroc_avg").is_not_nan()
+                    (pl.col(col) == group_b) & pl.col("auroc_avg").is_finite()
                 )["auroc_avg"].to_numpy()
 
                 if len(vals_a) < 2 or len(vals_b) < 2:
@@ -232,8 +242,9 @@ def run_wilcoxon_tests(data: pl.DataFrame) -> pl.DataFrame:
                 )
 
     result_df = pl.DataFrame(results)
-    if len(result_df) > 0:
-        pvals = result_df["pvalue"].to_numpy()
-        pvals_bh = false_discovery_control(pvals, method="bh")
-        result_df = result_df.with_columns(pvalue_bh=pl.Series(pvals_bh))
-    return result_df
+    if result_df.height != 18:
+        raise ValueError("Each coarse/strict comparison requires nine estimable tests")
+    return pl.concat([
+        family.with_columns(pvalue_bh=pl.Series(false_discovery_control(family["pvalue"].to_numpy(), method="bh")))
+        for family in result_df.partition_by("comparison")
+    ]).sort("representation", "channel", "comparison")

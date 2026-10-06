@@ -34,8 +34,9 @@ import time
 import numpy as np
 import pandas as pd
 import polars as pl
-from copairs.map import average_precision, mean_average_precision
-from copairs.map.multilabel import average_precision as average_precision_multilabel
+from prot_loc_benchmark.copairs_runtime import (
+    average_precision, average_precision_multilabel, mean_average_precision, positive_threads,
+)
 from copairs.matching import assign_reference_index
 
 REFERENCE_COL = "Metadata_reference_index"
@@ -274,6 +275,7 @@ def _run_map(
     max_workers: int | None = None,
     neg_sameby: list[str] | None = None,
     test_split: str | None = None,
+    blas_threads: int = 1,
 ) -> pd.DataFrame:
     """Core mAP computation shared by both comparisons.
 
@@ -348,6 +350,7 @@ def _run_map(
         pos_diffby=["Metadata_Plate"],
         neg_sameby=neg_sameby,
         neg_diffby=["Metadata_node_type", REFERENCE_COL],
+        max_workers=max_workers, blas_threads=blas_threads,
     )
 
     # Compute mAP + p-values + BH FDR (variant cells only)
@@ -364,7 +367,7 @@ def _run_map(
         null_size=null_size,
         threshold=threshold,
         seed=seed,
-        max_workers=max_workers,
+        max_workers=max_workers, blas_threads=blas_threads,
     )
 
     # Prefix columns with comparison label to avoid collisions on merge
@@ -393,6 +396,7 @@ def _compute_map_vs_ref(
     seed: int,
     max_workers: int | None = None,
     test_split: str | None = None,
+    blas_threads: int = 1,
 ) -> pl.DataFrame:
     """mAP: variant cells vs reference (disease_wt) cells of the same gene.
 
@@ -473,7 +477,7 @@ def _compute_map_vs_ref(
         null_size=null_size, threshold=threshold, seed=seed,
         label="vs_ref", max_workers=max_workers,
         neg_sameby=["Metadata_Plate", "Metadata_symbol"],
-        test_split=test_split,
+        test_split=test_split, blas_threads=blas_threads,
     )
     return pl.from_pandas(result)
 
@@ -584,6 +588,7 @@ def _compute_control_null(
     max_workers: int | None,
     test_split: str | None,
     min_cells: int = MIN_CELL_COUNT,
+    blas_threads: int = 1,
 ) -> pl.DataFrame:
     """Empirical control null using leave-one-out (LOO) construction.
 
@@ -618,7 +623,7 @@ def _compute_control_null(
                     pool, [loo_id], ch_feats,
                     cells_per_site, neg_per_plate, sample_level, aggregate,
                     null_size, threshold, seed, max_workers,
-                    test_split=test_split,
+                    test_split=test_split, blas_threads=blas_threads,
                 )
                 if ch_ctrl.is_empty():
                     skipped += 1
@@ -751,6 +756,7 @@ def _compute_map_hpa(
     threshold: float,
     seed: int,
     max_workers: int | None = None,
+    blas_threads: int = 1,
 ) -> pl.DataFrame:
     """mAP: reference (disease_wt) genes sharing HPA organelle labels.
 
@@ -766,6 +772,8 @@ def _compute_map_hpa(
       - "fov": 1 median profile per gene × plate × site (most points, pseudo-replicated)
     """
     unit_col = _resolve_well_col(df_full) if sample_level == "well" else _SAMPLE_UNIT_COL[sample_level]
+    max_workers = positive_threads(16 if max_workers is None else max_workers)
+    blas_threads = positive_threads(blas_threads)
     gene_to_labels = _load_hpa_labels(hpa_threshold)
     if not gene_to_labels:
         logger.warning("HPA: no genes with organelle scores ≥ %s", hpa_threshold)
@@ -824,6 +832,7 @@ def _compute_map_hpa(
             neg_sameby=[],
             neg_diffby=["Metadata_symbol", HPA_LABELS_COL],
             multilabel_col=HPA_LABELS_COL,
+            max_workers=max_workers, blas_threads=blas_threads,
             progress_bar=False,
         )
     except Exception as e:
@@ -837,7 +846,7 @@ def _compute_map_hpa(
         null_size=null_size,
         threshold=threshold,
         seed=seed,
-        max_workers=max_workers,
+        max_workers=max_workers, blas_threads=blas_threads,
         progress_bar=False,
     )
     map_scores = map_scores.rename(columns={
@@ -875,6 +884,7 @@ def run_phenotypic_activity(
     control_null: bool = True,
     null_percentile: float = NULL_PERCENTILE,
     ctrl_null_size: int = 1_000,
+    blas_threads: int = 1,
 ) -> None:
     """Run phenotypic activity assessment for one batch + representation.
 
@@ -963,7 +973,7 @@ def run_phenotypic_activity(
 
         ch_results = _compute_map_vs_ref(
             df_full, alleles, ch_feats, cells_per_site, neg_per_plate, sample_level, aggregate, null_size, threshold, seed, max_workers,
-            test_split=test_split,
+            test_split=test_split, blas_threads=blas_threads,
         )
 
         if ch_results.is_empty():
@@ -1003,6 +1013,7 @@ def run_phenotypic_activity(
             df_full, channel_map,
             cells_per_site, neg_per_plate, sample_level, aggregate,
             ctrl_null_size, threshold, seed, max_workers, test_split,
+            blas_threads=blas_threads,
         )
 
         if control_results.is_empty():
@@ -1073,6 +1084,7 @@ def run_phenotypic_activity(
             map_hpa = _compute_map_hpa(
                 df_full, ch_feats, cells_per_site, sample_level, aggregate,
                 hpa_threshold, hpa_consensus, null_size, threshold, seed, max_workers,
+                blas_threads=blas_threads,
             )
             if map_hpa.is_empty():
                 continue
@@ -1198,11 +1210,11 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--max-workers",
-        type=int,
-        default=None,
-        help="Number of threads for p-value computation (default: all available)",
+        "--max-workers", type=positive_threads, default=16,
+        help="Maximum copairs workers for similarities and nulls (default: 16)",
     )
+    parser.add_argument("--blas-threads", type=positive_threads, default=1,
+                        help="BLAS threads per worker (default: 1)")
     parser.add_argument(
         "--cp-feature-file",
         choices=["normalized", "features"],
@@ -1276,6 +1288,7 @@ def main() -> None:
         null_size=args.null_size,
         threshold=args.threshold,
         max_workers=args.max_workers,
+        blas_threads=args.blas_threads,
         cp_feature_file=args.cp_feature_file,
         test_split=test_split,
         control_null=args.control_null,

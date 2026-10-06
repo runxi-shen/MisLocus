@@ -50,8 +50,9 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import seaborn as sns
-from copairs.map import mean_average_precision
-from copairs.map.multilabel import average_precision as average_precision_multilabel
+from prot_loc_benchmark.copairs_runtime import (
+    average_precision_multilabel, mean_average_precision, positive_threads,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT / "scripts") not in sys.path:
@@ -199,6 +200,7 @@ def _run_hpa_map(
     threshold: float,
     seed: int,
     max_workers: int | None,
+    blas_threads: int = 1,
 ) -> pl.DataFrame:
     """Run copairs multilabel AP on gene-consensus profiles and aggregate per organelle.
 
@@ -209,6 +211,8 @@ def _run_hpa_map(
     organelle location with mAP_hpa, mAP_hpa_norm, p_value_hpa,
     corrected_p_value_hpa, below_p_hpa, below_corrected_p_hpa.
     """
+    max_workers = positive_threads(16 if max_workers is None else max_workers)
+    blas_threads = positive_threads(blas_threads)
     pool_pd = pool.to_pandas()
     pool_pd[HPA_LABELS_COL] = pool_pd["Metadata_symbol"].map(lambda g: gene_to_labels.get(g, []))
     pool_pd = pool_pd[pool_pd[HPA_LABELS_COL].map(len) > 0].reset_index(drop=True)
@@ -230,6 +234,7 @@ def _run_hpa_map(
             neg_sameby=[],
             neg_diffby=["Metadata_symbol", HPA_LABELS_COL],
             multilabel_col=HPA_LABELS_COL,
+            max_workers=max_workers, blas_threads=blas_threads,
             progress_bar=False,
         )
     except Exception as e:
@@ -242,7 +247,7 @@ def _run_hpa_map(
         null_size=null_size,
         threshold=threshold,
         seed=seed,
-        max_workers=max_workers,
+        max_workers=max_workers, blas_threads=blas_threads,
         progress_bar=False,
     )
     map_scores = map_scores.rename(columns={
@@ -566,7 +571,8 @@ def main() -> None:
     parser.add_argument("--null-size", type=int, default=10_000)
     parser.add_argument("--threshold", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--max-workers", type=int, default=None)
+    parser.add_argument("--max-workers", type=positive_threads, default=16)
+    parser.add_argument("--blas-threads", type=positive_threads, default=1)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument(
         "--test-split",
@@ -645,6 +651,7 @@ def main() -> None:
             map_hpa = _run_hpa_map(
                 pool, ch_feats, gene_to_labels,
                 args.null_size, args.threshold, args.seed, args.max_workers,
+                blas_threads=args.blas_threads,
             )
             if map_hpa.is_empty():
                 continue

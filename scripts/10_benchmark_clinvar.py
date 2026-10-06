@@ -152,7 +152,14 @@ def main() -> None:
             "test=T4 evaluation. Ignored if --pa is set."
         ),
     )
+    parser.add_argument("--setting", action="append", nargs=2, metavar=("REP", "CHANNEL"),
+                        help="Select each of nine test settings; PA channel names end in _vs_ref")
     args = parser.parse_args()
+    if args.setting:
+        args.setting = [(canonical_representation(rep), channel) for rep, channel in args.setting]
+        if len(args.setting) != 9 or len(set(args.setting)) != 9:
+            parser.error("--setting requires nine distinct representation/channel settings")
+        args.representations = [rep for rep, _ in args.setting]
     args.representations = list(dict.fromkeys(args.representations))
 
     logging.basicConfig(
@@ -179,6 +186,10 @@ def main() -> None:
             args.representations, BIOREP_PAIRS, BENCHMARK_CHANNELS,
             fold_mode=args.fold_mode,
         )
+
+    if args.setting:
+        settings = pl.DataFrame(args.setting, schema=["representation", "channel"], orient="row")
+        metrics = metrics.join(settings, on=["representation", "channel"], how="semi")
 
     # Step 2: Average across bio-reps
     log.info("Averaging across biological replicates...")
