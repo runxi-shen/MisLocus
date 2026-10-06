@@ -117,7 +117,7 @@ def main() -> None:
         "--representations",
         type=canonical_representation,
         nargs="+",
-        default=["cellprofiler", "cytoself", "cytoself_unseen"],
+        default=None,
         help="Representations to benchmark (default: cellprofiler cytoself cytoself_unseen)",
     )
     parser.add_argument(
@@ -159,8 +159,11 @@ def main() -> None:
         args.setting = [(canonical_representation(rep), channel) for rep, channel in args.setting]
         if len(args.setting) != 9 or len(set(args.setting)) != 9:
             parser.error("--setting requires nine distinct representation/channel settings")
-        args.representations = [rep for rep, _ in args.setting]
-    args.representations = list(dict.fromkeys(args.representations))
+        selected_reps = [rep for rep, _ in args.setting]
+        if args.representations is not None and set(args.representations) != set(selected_reps):
+            parser.error("--representations must match the representations in --setting")
+        args.representations = selected_reps
+    args.representations = list(dict.fromkeys(args.representations or ["cellprofiler", "cytoself", "cytoself_unseen"]))
 
     logging.basicConfig(
         level=logging.INFO,

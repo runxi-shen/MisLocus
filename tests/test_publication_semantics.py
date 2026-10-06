@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -14,7 +15,7 @@ from scipy.stats import false_discovery_control
 
 from prot_loc_benchmark.benchmark import clinvar
 from prot_loc_benchmark import copairs_runtime
-from test_hf_feature_names import hpa
+from test_hf_feature_names import hpa, clinical
 from test_pa_support import BATCH, pa, pool, run
 
 
@@ -71,6 +72,26 @@ class PublicationSemanticsChecks(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "failure"), copairs_runtime.bounded_copairs(1, 1):
             raise RuntimeError("failure")
         self.assertIs(compute.ThreadPool, original)
+
+    def test_recipe_and_cli_require_consistent_explicit_settings(self):
+        recipes = (Path(__file__).resolve().parents[1] / "Justfile").read_text()
+        for recipe in ["benchmark-clinvar", "benchmark-all", "all"]:
+            self.assertIn(f"\n{recipe} REPS SETTINGS:", recipes)
+        for child in ["benchmark-clinvar", "benchmark-all"]:
+            self.assertIn(f'just {child} "{{{{REPS}}}}" "{{{{SETTINGS}}}}"', recipes)
+        self.assertIn('--representations {{REPS}} {{SETTINGS}}', recipes)
+        reps = [f"r{i}" for i in range(9)]
+        command = ["clinvar", *sum((["--setting", r, "X"] for r in reps), [])]
+        with patch.object(clinical, "load_metrics", side_effect=RuntimeError("load boundary")) as load:
+            with patch.object(sys, "argv", command + ["--representations", "other"]):
+                with self.assertRaises(SystemExit) as caught:
+                    clinical.main()
+                self.assertEqual(caught.exception.code, 2)
+            load.assert_not_called()
+            with patch.object(sys, "argv", command + ["--representations", *reps]):
+                with self.assertRaisesRegex(RuntimeError, "load boundary"):
+                    clinical.main()
+            self.assertEqual(load.call_args.args[0], reps)
 
     def test_consensus_is_per_annotation_column(self):
         coarse, strict = "clinvar_clnsig_clean", "clinvar_clnsig_clean_pp_strict"

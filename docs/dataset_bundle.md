@@ -269,7 +269,10 @@ Each mAP call uses its own temporary null cache, independent of earlier calls.
 ClinVar requires **nine selected representation/channel settings per task**, with
 separate nine-test BH corrections for coarse and strict labels—not one18-test
 family. Select them with repeated `10_benchmark_clinvar.py --setting REP CHANNEL`
-arguments (PA channels include `_vs_ref`). Missing/insufficient tests fail rather
+arguments (PA channels include `_vs_ref`). If `--representations` is also supplied,
+it must agree. The legacy `benchmark-clinvar`, `benchmark-all` and `all` recipes
+require two quoted arguments: the representation list and the nine `--setting`
+flags; there is no implicit setting family. Missing/insufficient tests fail rather
 than shrink the family. Duplicate annotations use column-wise consensus: a
 strict-label conflict does not discard an agreed coarse label. Input cohort,
 calibration and model identity still require independent checks.
