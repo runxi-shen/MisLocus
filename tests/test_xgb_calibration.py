@@ -20,7 +20,8 @@ class CalibrationChecks(unittest.TestCase):
         frame = pl.DataFrame({'channel': ['x'] * 4, 'auroc': [.1, .3, .6, .9]})
         self.assertEqual(metrics.compute_null_threshold(frame, 50), {'x': .6})
         for bad in [frame.head(0), frame.with_columns(auroc=pl.lit(float('nan'))),
-                    frame.with_columns(auroc=pl.lit(1.1)), frame.with_columns(auroc=pl.lit(float('inf')))]:
+                    frame.with_columns(auroc=pl.lit(1.1)), frame.with_columns(auroc=pl.lit(float('inf'))),
+                    frame.with_columns(auroc=pl.Series([.1, .3, .6, float('inf')]))]:
             with self.assertRaises(ValueError):
                 metrics.compute_null_threshold(bad)
         exp = pl.DataFrame({'pair_id': ['a'], 'gene': ['G'], 'allele_var': ['G_v'],
@@ -50,9 +51,15 @@ class CalibrationChecks(unittest.TestCase):
                 load_calibration(directory, context)
 
     def test_device_fails_closed_and_cpu_is_repeatable(self):
-        with patch.dict(os.environ, {'MISLOCUS_CLASSIFIER_BACKEND': 'gpu', 'CUDA_VISIBLE_DEVICES': ''}):
-            with self.assertRaises(ValueError):
-                train.select_device()
+        for visible in ('', '0'):
+            with patch.dict(os.environ, {'MISLOCUS_CLASSIFIER_BACKEND': 'gpu', 'CUDA_VISIBLE_DEVICES': visible}), patch(
+                    'xgboost.build_info', return_value={'USE_CUDA': True}):
+                with self.assertRaisesRegex(ValueError, 'allocation'):
+                    train.select_device()
+        with patch.dict(os.environ, {'MISLOCUS_CLASSIFIER_BACKEND': 'gpu',
+                'CUDA_VISIBLE_DEVICES':'GPU-01234567-89ab-cdef-0123-456789abcdef'}), patch(
+                'xgboost.build_info', return_value={'USE_CUDA': True}):
+            self.assertEqual(train.select_device(), 'cuda:0')
         with patch.dict(os.environ, {'MISLOCUS_CLASSIFIER_BACKEND': 'typo'}):
             with self.assertRaises(ValueError):
                 train.select_device()
@@ -65,6 +72,28 @@ class CalibrationChecks(unittest.TestCase):
                 {'learner': {'generic_param': {'device': 'cpu'}}})
             with self.assertRaisesRegex(RuntimeError, 'fallback'):
                 train.train_and_predict(data, data, ['f'], device='cuda:0')
+
+    def test_completed_reader_matches_legacy_schema(self):
+        from prot_loc_benchmark.provenance import save_json, sha256
+        row = dict(classifier_id='c', pair_id='p', gene='G', allele_var='G_v', channel='EMBED',
+                   category='Exp', auroc=.9, auprc=.8, balanced_accuracy=.8, imbalance_ratio=1.)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); current = root / 'vit_t4' / 'batch'; controls = current / 'controls'
+            controls.mkdir(parents=True); legacy = root / 'vit' / 'other'; legacy.mkdir(parents=True)
+            pl.DataFrame({'channel':['EMBED'], 'auroc':[.5], 'category':['NC']}).write_csv(controls/'metrics.csv')
+            context = dict(representation='vit', batch='batch', protocol='t4', max_imbalance=3,
+                           channel_features={'EMBED':['f']})
+            thresholds = save_calibration(controls, context)
+            metrics.aggregate_allele_metrics(pl.DataFrame([row]), thresholds, min_classifiers=1).write_csv(current/'metrics_summary.csv')
+            save_json(current/'completion.json', dict(status='complete', context=context, calibration_dir=str(controls),
+                calibration_sha256=sha256(controls/'calibration.json'), summary_sha256=sha256(current/'metrics_summary.csv')))
+            pl.DataFrame([row]).write_csv(legacy/'metrics.csv')
+            pl.DataFrame({'classifier_id':['c'], 'test_plates':['plate_T4']}).write_csv(legacy/'classifier_info.csv')
+            frames = [metrics.load_single_fold_metrics('vit', b, classification_dir=root) for b in ['batch','other']]
+            self.assertEqual(pl.concat(frames).height, 2)
+            self.assertIsNone(frames[1]['null_threshold'][0])
+            with self.assertRaisesRegex(ValueError, 'Mismatched'):
+                metrics.load_single_fold_metrics('vit', 'batch', classification_dir=root, max_imbalance=2)
 
     def test_failed_cli_does_not_rebind_existing_outputs(self):
         path = Path(__file__).resolve().parents[1] / 'scripts/09_classify.py'
@@ -97,6 +126,8 @@ class CalibrationChecks(unittest.TestCase):
                                  'Metadata_ObjectNumber': i, 'SubCell_0': (i % 11) / 10 + (allele == 'G_v')})
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'MISLOCUS_CLASSIFIER_BACKEND': 'cpu'}):
             root = Path(tmp); inputs = root / 'input' / rep / batch; inputs.mkdir(parents=True)
+            rows += [{**r, 'Metadata_gene_allele':'G_T4_only', 'Metadata_well_position':'B03'}
+                     for r in rows if r['Metadata_gene_allele']=='G_v' and r['Metadata_Plate']=='plate_T4']
             pl.DataFrame(rows).write_parquet(inputs / 'features.parquet')
             with patch.object(cli, 'INTERIM_DIR', root / 'input'), patch.object(cli, 'CLASSIFICATION_OUTPUT_DIR', root / 'output'):
                 with self.assertRaisesRegex(ValueError, 'full NC\\+PC'):

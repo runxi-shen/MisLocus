@@ -304,7 +304,8 @@ Inspect current arguments without running an analysis:
 
 CPU is the default (`auto` also means CPU, never GPU discovery).
 GPU XGBoost requires the `gpu` environment and exactly one explicitly allocated
-`CUDA_VISIBLE_DEVICES` entry plus `09 --gpu` (or backend environment `gpu`).
+full GPU UUID in `CUDA_VISIBLE_DEVICES` plus `09 --gpu` (or backend environment `gpu`).
+Numeric ordinals are rejected: CUDA and `nvidia-smi` ordinal ordering can differ.
 A missing GPU or XGBoost backend fallback is an error, not CPU calibration.
 Never substitute CPU calibration for GPU scores, or reuse controls computed
 with different scoring settings.

@@ -233,6 +233,10 @@ def classify_batch(
                 train_df, test_df = split_fold(pair_df, fold, layout)
                 if train_df.height < MIN_CELL_COUNT or test_df.height < 10:
                     continue
+                train_counts = train_df["Label"].value_counts()["count"]
+                if len(train_counts) != 2 or test_df["Label"].n_unique() != 2 or train_counts.max() / train_counts.min() > 100:
+                    logger.info("Skipping unsupported fold %s for %s", fold.fold_id, pair.pair_id)
+                    continue
 
                 tasks.append({
                     "pair": pair,
@@ -271,27 +275,13 @@ def classify_batch(
     exp_tasks = [t for t in tasks if not t["pair"].is_control]
     exp_metrics = _execute(exp_tasks, output_dir, device, workers, params)
 
-    if not exp_metrics.is_empty():
-        summary = aggregate_allele_metrics(exp_metrics, null_thresholds, **({"min_classifiers": 1} if test_split else {}))
-        if not summary.is_empty():
-            summary.write_csv(str(output_dir / "metrics_summary.csv"))
-            n_hits = int(summary["is_hit"].sum()) if "is_hit" in summary.columns else 0
-            logger.info(
-                "Wrote metrics_summary.csv: %d alleles, %d hits",
-                summary.height,
-                n_hits,
-            )
-
-            # ── Wide-format summary (one row per allele, columns per channel) ─
-            write_wide_summary(summary, output_dir, batch_id)
-        else:
-            raise ValueError("No alleles passed aggregation filters")
-    else:
-        logger.info("No experimental metrics to aggregate (scope may be control-only)")
-
-    # ── AUROC distribution plot ──────────────────────────────────────
-    if not control_metrics.is_empty() and not exp_metrics.is_empty():
-        plot_auroc_distributions(control_metrics, exp_metrics, output_dir, batch_id)
+    summary = aggregate_allele_metrics(exp_metrics, null_thresholds, **({"min_classifiers": 1} if test_split else {}))
+    if summary.is_empty():
+        raise ValueError("No alleles passed aggregation filters")
+    summary.write_csv(str(output_dir / "metrics_summary.csv"))
+    logger.info("Wrote metrics_summary.csv: %d alleles, %d hits", summary.height, summary["is_hit"].sum())
+    write_wide_summary(summary, output_dir, batch_id)
+    plot_auroc_distributions(control_metrics, exp_metrics, output_dir, batch_id)
 
     save_json(output_dir / "completion.json", dict(status="complete", context=context,
         calibration_dir=str(control_dir.resolve()), calibration_sha256=sha256(control_dir / "calibration.json"),

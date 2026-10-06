@@ -94,7 +94,7 @@ def compute_null_threshold(
     if not 0 <= percentile <= 100:
         raise ValueError("percentile must be between 0 and 100")
     valid = control_metrics.filter(pl.col("auroc").is_finite())
-    if valid.is_empty() or not valid["auroc"].is_between(0, 1).all():
+    if control_metrics["auroc"].is_infinite().any() or valid.is_empty() or not valid["auroc"].is_between(0, 1).all():
         raise ValueError("Calibration requires finite AUROCs in [0, 1]")
     n_dropped = control_metrics.height - valid.height
     if n_dropped > 0:
@@ -208,7 +208,7 @@ def load_single_fold_metrics(
     direct = root / f"{representation}_t4" / batch
     if test_plate_suffix == "T4" and direct.exists():
         from .calibration import load_completed_summary
-        return load_completed_summary(direct, representation, batch)
+        return load_completed_summary(direct, representation, batch, max_imbalance)
     base = root / representation / batch
     info_path = base / "classifier_info.csv"
     metrics_path = base / "metrics.csv"

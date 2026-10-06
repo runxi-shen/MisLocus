@@ -62,11 +62,11 @@ def load_calibration(directory: Path, context: dict) -> tuple[dict[str, float], 
     return thresholds, metrics
 
 
-def load_completed_summary(directory: Path, representation: str, batch: str) -> pl.DataFrame:
+def load_completed_summary(directory: Path, representation: str, batch: str, max_imbalance: float) -> pl.DataFrame:
     receipt, _ = read_json_with_hash(directory / 'completion.json')
     context = receipt['context']
     if (receipt.get('status') != 'complete' or context['representation'] != representation
-            or context['batch'] != batch or context['protocol'] != 't4'):
+            or context['batch'] != batch or context['protocol'] != 't4' or context['max_imbalance'] != max_imbalance):
         raise ValueError('Mismatched completed T4 classification')
     controls = Path(receipt['calibration_dir'])
     if sha256(controls / 'calibration.json') != receipt['calibration_sha256']:
@@ -75,4 +75,4 @@ def load_completed_summary(directory: Path, representation: str, batch: str) -> 
     path = directory / 'metrics_summary.csv'
     if sha256(path) != receipt['summary_sha256']:
         raise ValueError('Changed classification summary')
-    return pl.read_csv(path, schema_overrides={'auroc_std': pl.Float64})
+    return pl.read_csv(path, schema_overrides={'auroc_std': pl.Float64, 'n_classifiers': pl.Int32})

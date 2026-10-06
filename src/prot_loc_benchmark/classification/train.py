@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 
 import numpy as np
 import polars as pl
@@ -23,8 +24,8 @@ def select_device(backend: str | None = None) -> str:
     if backend != "gpu":
         raise ValueError(f"Unknown classifier backend: {backend}")
     visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
-    if not visible or visible == "-1" or "," in visible:
-        raise ValueError("GPU execution requires one explicit CUDA_VISIBLE_DEVICES allocation")
+    if not re.fullmatch(r"GPU-[\da-fA-F]{8}(?:-[\da-fA-F]{4}){3}-[\da-fA-F]{12}", visible):
+        raise ValueError("GPU execution requires one full GPU UUID allocation in CUDA_VISIBLE_DEVICES")
     if not xgboost.build_info().get("USE_CUDA", False):
         raise ValueError("Installed XGBoost has no CUDA support")
     return "cuda:0"
