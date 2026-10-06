@@ -1,5 +1,6 @@
 """Publication numerical semantics and configurable execution, on small inputs."""
 import os
+import json
 from pathlib import Path
 import tempfile
 import sys
@@ -17,6 +18,7 @@ from prot_loc_benchmark.benchmark import clinvar
 from prot_loc_benchmark import copairs_runtime
 from test_hf_feature_names import hpa, clinical
 from test_pa_support import BATCH, pa, pool, run
+from test_hit_cohorts import hit_cohorts, pa_row, PAIRS
 
 
 class PublicationSemanticsChecks(unittest.TestCase):
@@ -92,6 +94,40 @@ class PublicationSemanticsChecks(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "load boundary"):
                     clinical.main()
             self.assertEqual(load.call_args.args[0], reps)
+
+    def test_matched_report_cli_reuses_means_without_duplicate_alleles(self):
+        settings = [(f"r{i}", "GFP") for i in range(9)]
+        labels = pl.DataFrame({"gene_variant": [f"G_{i}" for i in range(4)],
+                              "clinvar_clnsig_clean": ["Pathogenic"] * 2 + ["Benign"] * 2,
+                              "clinvar_clnsig_clean_pp_strict": ["Pathogenic"] * 2 + ["Benign"] * 2})
+        for task in ["pa", "xgb"]:
+            with self.subTest(task=task), tempfile.TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                scores = pl.DataFrame([pa_row(r, b, f"G_{i}", (.8 if b in "AB" else .4) - i / 100)
+                                       for r, _ in settings for b in "ABCD" for i in range(4)])
+                if task == "xgb":
+                    scores = scores.rename({"Metadata_gene_allele": "allele_var", "mAP_vs_ref_norm": "auroc_mean", "null_threshold_p95": "null_threshold"})
+                summary = hit_cohorts(scores, task, settings, PAIRS)["allele_summary"]
+                path = directory / "allele_summary.parquet"
+                summary.write_parquet(path)
+                (directory / "report.json").write_text(json.dumps({"task": task, "settings": settings}))
+                with patch.object(clinical, "load_clinvar_annotations", return_value=labels), \
+                        patch.object(clinical, "plot_clinvar_violin"), patch.object(clinical, "plot_summary_heatmap"), \
+                        patch("prot_loc_benchmark.provenance.record"), \
+                        patch.object(sys, "argv", ["clinvar", "--cohort-report", str(directory)]):
+                    clinical.main()
+                    output = directory / ("clinvar_PA" if task == "pa" else "clinvar") / "r0/summary"
+                    actual = pl.read_csv(output / "averaged_metrics.csv").sort("allele_var")
+                    self.assertEqual(actual.height, 4)
+                    np.testing.assert_allclose(actual["auroc_avg"], [.6 - i / 100 for i in range(4)])
+                    self.assertEqual(pl.read_csv(output / "wilcoxon_results.csv")["n_a"].to_list(), [2, 2])
+                    with self.assertRaises(FileExistsError):
+                        clinical.main()
+                for invalid in [pl.concat([summary, summary]), summary.filter(pl.col("representation") != "r0"),
+                                summary.with_columns(mean_score=float("nan")), summary.with_columns(n_batches=1)]:
+                    invalid.write_parquet(path)
+                    with self.assertRaises(ValueError):
+                        clinvar.load_cohort_report(directory)
 
     def test_consensus_is_per_annotation_column(self):
         coarse, strict = "clinvar_clnsig_clean", "clinvar_clnsig_clean_pp_strict"

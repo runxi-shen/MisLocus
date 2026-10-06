@@ -296,7 +296,14 @@ calibration and model identity still require independent checks.
 | `10c_report_hits.py` | Calibrated batch scores → shared-support hits, cohort summaries and denominators. |
 | `11_summarize_across_reps.py` | Existing `10` summaries → cross-representation tables and plots. |
 
-For ClinVar, prepare the intended biological-replicate batches (see
+For matched ClinVar comparisons, reuse the completed `10c` report:
+`python scripts/10_benchmark_clinvar.py --cohort-report PATH_TO_REPORT`.
+This reads the report's task, nine settings and `complete_pair_any` means without
+re-averaging or counting an allele once per pair. Outputs go to a new `clinvar`
+(XGB) or `clinvar_PA` (PA) subdirectory; overrides of task/settings and existing
+output directories are rejected. Calibration/model lineage remains a precondition.
+
+For the legacy raw-score route, prepare the intended biological-replicate batches (see
 [batch identifiers](#batch-identifiers)) and select representations explicitly;
 one batch is not a complete paired comparison. `10` defaults to
 four-fold XGBoost summaries; `--fold-mode t4-only` selects T4-test metrics.

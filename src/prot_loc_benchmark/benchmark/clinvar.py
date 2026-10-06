@@ -8,7 +8,9 @@ label set should reuse these helpers.
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -136,6 +138,31 @@ def average_across_bioreps(metrics: pl.DataFrame) -> pl.DataFrame:
 # ============================================================================
 # CLINVAR ANNOTATION
 # ============================================================================
+
+
+def load_cohort_report(directory: Path) -> tuple[str, pl.DataFrame]:
+    """Read a completed 10c report; reuse its complete-pair means, never re-average."""
+    report = json.loads((directory / "report.json").read_text())
+    task, settings = report["task"], report["settings"]
+    expected = set(map(tuple, settings))
+    data = pl.read_parquet(directory / "allele_summary.parquet").filter(pl.col("cohort") == "complete_pair_any")
+    keys = ["representation", "channel", "allele"]
+    if task not in {"xgb", "pa"} or len(settings) != 9 or len(expected) != 9:
+        raise ValueError("Cohort report requires one task and nine distinct settings")
+    if (any(data[c].dtype != pl.String or data[c].null_count() or data[c].str.strip_chars().eq("").any() for c in keys)
+            or data.select(keys).is_duplicated().any()
+            or set(data.select(keys[:2]).iter_rows()) != expected
+            or data.group_by("allele").len().filter(pl.col("len") != 9).height):
+        raise ValueError("Cohort report must contain each allele once in every selected setting")
+    valid = pl.col("mean_score").is_finite() & (pl.col("n_batches") >= 2) & (pl.col("n_batches") % 2 == 0)
+    if task == "xgb":
+        valid &= pl.col("mean_score").is_between(0, 1)
+    if not data.select(valid.fill_null(False).all()).item():
+        raise ValueError("Cohort report requires finite scores and complete batch pairs")
+    return task, data.select("representation", "channel", pl.col("allele").alias("allele_var"),
+                             pl.col("allele").str.split("_").list.first().alias("gene"),
+                             pl.col("mean_score").alias("auroc_avg")).with_columns(
+        channel=pl.col("channel") + ("_vs_ref" if task == "pa" else ""))
 
 
 def load_clinvar_annotations() -> pl.DataFrame:
