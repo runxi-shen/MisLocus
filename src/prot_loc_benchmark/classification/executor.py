@@ -7,25 +7,25 @@ multiple classification scripts can share one implementation.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from .io import ClassificationWriter
 from .metrics import compute_classifier_metrics
-from .train import _count_gpus, train_and_predict
+from .train import train_and_predict
 
 logger = logging.getLogger(__name__)
 
 
-def _run_classifier(task: dict, task_device: str) -> dict | None:
+def _run_classifier(task: dict, task_device: str, xgb_params: dict | None = None) -> dict | None:
     """Train one classifier and return a results dict, or None on failure."""
     result = train_and_predict(
         task["train_df"],
         task["test_df"],
         task["ch_features"],
         device=task_device,
+        xgb_params=xgb_params,
     )
     if result is None:
         return None
@@ -66,6 +66,8 @@ def run_classifier_tasks(
     tasks: list[dict],
     device: str,
     output_dir: Path,
+    workers: int = 2,
+    xgb_params: dict | None = None,
 ) -> tuple[list[dict], list[dict], list[dict], int]:
     """Run a batch of classifier tasks in parallel and stream predictions.
 
@@ -75,14 +77,9 @@ def run_classifier_tasks(
         List of dicts, each with keys:
         ``pair``, ``channel``, ``ch_features``, ``fold``, ``train_df``, ``test_df``.
         The train/test dataframes are read-only — this function does not
-        modify them. Each task dict, however, is mutated in-place to add a
-        ``"device"`` key (set to ``"cpu"`` or e.g. ``"cuda:0"`` based on the
-        ``device`` argument and fold_id) before dispatch. Callers that
-        intend to reuse the same task list across multiple runs should be
-        aware that the device assignment carries over.
+        modify them or their task dictionaries.
     device
-        ``"cpu"`` or a non-cpu device string. Non-cpu triggers GPU fold-parallel
-        execution across available GPUs (capped at 4).
+        One selected CPU or explicitly allocated GPU backend, shared by all tasks.
     output_dir
         Directory where ``predictions.parquet`` will be written.
 
@@ -97,37 +94,21 @@ def run_classifier_tasks(
     info_rows: list[dict] = []
     n_classifiers = 0
 
-    if device != "cpu":
-        n_gpus = _count_gpus()
-        max_workers = min(n_gpus, 4)
-        for task in tasks:
-            gpu_id = task["fold"].fold_id % max_workers
-            task["device"] = f"cuda:{gpu_id}"
-        logger.info(
-            "Running %d classifiers fold-parallel across %d GPUs",
-            len(tasks), max_workers,
-        )
-    else:
-        max_workers = min(8, os.cpu_count() or 1)
-        for task in tasks:
-            task["device"] = "cpu"
-        logger.info(
-            "Running %d classifiers (max_workers=%d, CPU)",
-            len(tasks), max_workers,
-        )
+    if workers < 1:
+        raise ValueError("workers must be positive")
 
     t_class = time.time()
     predictions_path = output_dir / "predictions.parquet"
     with ClassificationWriter(predictions_path) as writer:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(_run_classifier, t, t["device"]): t
+                executor.submit(_run_classifier, t, device, xgb_params): t
                 for t in tasks
             }
             for future in as_completed(futures):
                 r = future.result()
                 if r is None:
-                    continue
+                    raise ValueError("Classifier unavailable; refusing a partial calibrated run")
 
                 n_classifiers += 1
                 pair = r["pair"]
@@ -185,6 +166,7 @@ def run_classifier_tasks(
                     "n_train_ref": r["n_train_pos"],
                     "n_train_var": r["n_train_neg"],
                     "n_test": test_df.height,
+                    "train_plates": ",".join(fold.train_plates),
                     "test_plates": ",".join(fold.test_plates),
                     "test_wells": ",".join(fold.test_wells),
                 })

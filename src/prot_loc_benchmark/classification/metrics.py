@@ -86,21 +86,23 @@ def compute_null_threshold(
     Returns dict mapping channel name to AUROC threshold.
     """
     if control_metrics.is_empty():
-        logger.warning("No control metrics available, using default threshold 0.5")
-        return {}
+        raise ValueError("No control metrics: run controls before calling hits")
 
     thresholds: dict[str, float] = {}
     q = percentile / 100.0
 
-    # Drop NaN AUROCs before computing quantiles (edge-case classifiers)
-    valid = control_metrics.filter(~pl.col("auroc").is_nan())
+    if not 0 <= percentile <= 100:
+        raise ValueError("percentile must be between 0 and 100")
+    valid = control_metrics.filter(pl.col("auroc").is_finite())
+    if control_metrics["auroc"].is_infinite().any() or valid.is_empty() or not valid["auroc"].is_between(0, 1).all():
+        raise ValueError("Calibration requires finite AUROCs in [0, 1]")
     n_dropped = control_metrics.height - valid.height
     if n_dropped > 0:
         logger.info("Dropped %d control classifiers with NaN AUROC", n_dropped)
 
     for row in (
         valid.group_by("channel")
-        .agg(pl.col("auroc").quantile(q).alias("threshold"))
+        .agg(pl.col("auroc").quantile(q, "nearest").alias("threshold"))
         .iter_rows(named=True)
     ):
         thresholds[row["channel"]] = row["threshold"]
@@ -112,6 +114,12 @@ def compute_null_threshold(
         )
 
     return thresholds
+
+
+def validate_thresholds(thresholds: dict[str, float], channels: list[str]) -> None:
+    if any(not isinstance(thresholds.get(c), (int, float)) or not np.isfinite(thresholds[c])
+           or not 0 <= thresholds[c] <= 1 for c in channels):
+        raise ValueError("Missing or invalid channel calibration")
 
 
 def aggregate_allele_metrics(
@@ -129,8 +137,8 @@ def aggregate_allele_metrics(
     4. Compute mean AUROC and other summary stats
     5. Call hits: mean_auroc > null_threshold[channel]
     """
-    # Filter by imbalance
-    filtered = metrics_df.filter(pl.col("imbalance_ratio") <= max_imbalance)
+    validate_thresholds(null_thresholds, metrics_df["channel"].unique().to_list())
+    filtered = metrics_df.filter((pl.col("imbalance_ratio") <= max_imbalance) & pl.col("auroc").is_finite())
 
     if filtered.is_empty():
         logger.warning("All classifiers filtered out by imbalance threshold")
@@ -156,7 +164,7 @@ def aggregate_allele_metrics(
     # Add null threshold and hit call
     agg = agg.with_columns(
         pl.col("channel")
-        .replace_strict(null_thresholds, default=0.5)
+        .replace_strict(null_thresholds, return_dtype=pl.Float64)
         .alias("null_threshold"),
     )
     agg = agg.with_columns(
@@ -191,12 +199,17 @@ def load_single_fold_metrics(
     T3 as validation (T4 is fully held out from the encoder).
 
     Each (pair, channel) maps to exactly one fold here, so ``auroc_mean`` is
-    the single-fold AUROC and ``auroc_std`` is 0. ``null_threshold`` and
-    ``is_hit`` are filled with placeholders (0.5 / False) — downstream
-    benchmarks read ``auroc_mean`` only.
+    the single-fold AUROC. Completed T4 runs validate their matched calibration.
+    Legacy files remain score-only: uncertainty, threshold and hit are unavailable,
+    never fabricated as 0 / 0.5 / False.
     """
     representation = canonical_representation(representation)
-    base = (classification_dir or CLASSIFICATION_OUTPUT_DIR) / representation / batch
+    root = classification_dir or CLASSIFICATION_OUTPUT_DIR
+    direct = root / f"{representation}_t4" / batch
+    if test_plate_suffix == "T4" and direct.exists():
+        from .calibration import load_completed_summary
+        return load_completed_summary(direct, representation, batch, max_imbalance)
+    base = root / representation / batch
     info_path = base / "classifier_info.csv"
     metrics_path = base / "metrics.csv"
     if not info_path.exists() or not metrics_path.exists():
@@ -208,7 +221,7 @@ def load_single_fold_metrics(
 
     keep_ids = info.filter(
         pl.col("test_plates").str.ends_with(test_plate_suffix)
-    ).select("classifier_id")
+    ).select("classifier_id").unique()
     if keep_ids.is_empty():
         logger.warning(
             "No classifiers with test_plates ending in %r for %s/%s",
@@ -230,10 +243,10 @@ def load_single_fold_metrics(
         "allele_var",
         "channel",
         pl.col("auroc").alias("auroc_mean"),
-        pl.lit(0.0).alias("auroc_std"),
+        pl.lit(None, dtype=pl.Float64).alias("auroc_std"),
         pl.col("auprc").alias("auprc_mean"),
         pl.col("balanced_accuracy").alias("balanced_accuracy_mean"),
         pl.lit(1).alias("n_classifiers"),
-        pl.lit(0.5).alias("null_threshold"),
-        pl.lit(False).alias("is_hit"),
+        pl.lit(None, dtype=pl.Float64).alias("null_threshold"),
+        pl.lit(None, dtype=pl.Boolean).alias("is_hit"),
     ])
