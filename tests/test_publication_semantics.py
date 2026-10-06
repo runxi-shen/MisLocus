@@ -128,6 +128,10 @@ class PublicationSemanticsChecks(unittest.TestCase):
                     invalid.write_parquet(path)
                     with self.assertRaises(ValueError):
                         clinvar.load_cohort_report(directory)
+                summary.with_columns(representation=pl.lit("../") + pl.col("representation")).write_parquet(path)
+                (directory / "report.json").write_text(json.dumps({"task": task, "settings": [("../" + r, c) for r, c in settings]}))
+                with self.assertRaisesRegex(ValueError, "safe identities"):
+                    clinvar.load_cohort_report(directory)
 
     def test_consensus_is_per_annotation_column(self):
         coarse, strict = "clinvar_clnsig_clean", "clinvar_clnsig_clean_pp_strict"

@@ -151,9 +151,10 @@ def load_cohort_report(directory: Path) -> tuple[str, pl.DataFrame]:
         raise ValueError("Cohort report requires one task and nine distinct settings")
     if (any(data[c].dtype != pl.String or data[c].null_count() or data[c].str.strip_chars().eq("").any() for c in keys)
             or data.select(keys).is_duplicated().any()
+            or any(Path(rep).name != rep or rep in {".", ".."} for rep, _ in expected)
             or set(data.select(keys[:2]).iter_rows()) != expected
             or data.group_by("allele").len().filter(pl.col("len") != 9).height):
-        raise ValueError("Cohort report must contain each allele once in every selected setting")
+        raise ValueError("Cohort report requires safe identities and each allele once in every selected setting")
     valid = pl.col("mean_score").is_finite() & (pl.col("n_batches") >= 2) & (pl.col("n_batches") % 2 == 0)
     if task == "xgb":
         valid &= pl.col("mean_score").is_between(0, 1)
