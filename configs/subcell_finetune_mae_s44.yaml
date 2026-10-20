@@ -1,119 +1,13 @@
-# SubCell MAE fine-tune — seed 44 retrain (multi-seed variance estimation)
-#
-# Differs from configs/subcell_finetune_mae.yaml only in exp_mode (output dir).
-# All other hyperparameters held fixed; the seed varies the model init,
-# DDP shuffle, and stochastic augmentation only.
-#
-# Invoke via:
-#   torchrun --nproc_per_node=2 --master_port=29508 \
-#     scripts/08c_train_subcell_finetune.py -c configs/subcell_finetune_mae_s44.yaml -r 44
-
-exp_folder: "data/interim/subcell_finetune"
-exp_name: "models"
-exp_mode: "mae_s44"
-log_wandb: false
-num_workers: 2
-pin_memory: true
-
-data:
-  dataset: "MisLocusSubCellDataset"
-  manifest_csv: "data/interim/cytoself/manifests/manifest_b7b8b13b16_siteqc.csv"
-  image_size: 448
-  args:
-    ssl_transform: true
-    protein_path: null
-    n_cells: 8
-    mask_prob: 0.5
-    color_channels:
-      - "red"
-      - "yellow"
-      - "blue"
-      - "green"
-    normalize: "min_max"
-    return_cell_mask: true
-
-model:
-  mae_model:
-    name: "ViTMAEForPreTraining"
-    args:
-      hidden_size: 768
-      num_hidden_layers: 12
-      num_attention_heads: 12
-      intermediate_size: 3072
-      hidden_act: "gelu"
-      hidden_dropout_prob: 0.0
-      attention_probs_dropout_prob: 0.0
-      initializer_range: 0.02
-      layer_norm_eps: 1.e-12
-      image_size: 448
-      patch_size: 16
-      num_channels: 4
-      qkv_bias: true
-      decoder_num_attention_heads: 16
-      decoder_hidden_size: 512
-      decoder_num_hidden_layers: 8
-      decoder_intermediate_size: 2048
-      mask_ratio: 0.25
-      norm_pix_loss: true
-      object_mask_ratio: 0.0
-  ssl_model:
-    name: ContrastiveLoss
-    args:
-      projector:
-        name: "ProjectionHead"
-        args:
-          in_channels: 1536
-          mlp_layers:
-            - 8192
-            - 8192
-            - 512
-      temperature: 0.1
-  supcon_model:
-    name: ContrastiveLoss
-    args:
-      projector:
-        name: "ProjectionHead"
-        args:
-          in_channels: 1536
-          mlp_layers:
-            - 8192
-            - 8192
-            - 512
-      temperature: 0.1
-  pool_model:
-    name: "GatedAttentionPooler"
-    args:
-      dim: 768
-      int_dim: 512
-      num_heads: 2
-      dropout: 0.2
-  pl_args:
-    weight_recon: 1.0
-    weight_ssl: 1.0
-    weight_supcon: 0.1
-    mask_ratio2: 0.0
-    max_epochs: 100
-    init_lr: 5.e-5
-    weight_decay: 0.01
-    betas:
-      - 0.9
-      - 0.95
-    warmup_epochs: 5
-
-train:
-  pl_module: "ContrastMAE"
-  train_batch_size: 16
-  test_batch_size: 16
-  pretrained_weights: "data/interim/subcell_portable/weights/rybg/mae_contrast_supcon_model/encoder.pth"
-
-trainer:
-  gc_interval: 50
-  valid_every: 10
-  strategy: "auto"
-  logging_interval: 50
-  checkpoint_interval: 50
-  precision: "32-true"
-
-test:
-  tester: "MAETester"
-  model_path: "best_model_ap.ckpt"
+protocol: subcell-allele-rybg-v2
+family: mae
+seed: 44
+sampling_seed: 44
+preflight: data/interim/subcell_allele_rybg_v2/cohort
+pretrained_weights: data/interim/subcell_portable/weights/rybg/mae_contrast_supcon_model/encoder.pth
+pretrained_sha256: 493ff6d17e108e89b805f79a17cf09c2f237458637ed847e3ae7d187295f387d
+output: data/interim/subcell_allele_rybg_v2/mae_s44
+workers: 2
+devices: 2
+mask_prob: 0
+return_cell_mask: false
+object_mask_ratio: 0
