@@ -77,6 +77,9 @@ for commands, output locations, and input requirements.
 
 ## Benchmark workflow
 
+Follow [the reproduction guide](docs/reproduce.md) for one declared analysis
+configuration, completed-score reporting, tables, figures and the short launcher.
+
 Use the [minimal scoring workflow](docs/minimal_scoring.md) for the canonical
 published-feature evaluation commands and their declared T4 protocol.
 

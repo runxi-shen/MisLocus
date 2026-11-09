@@ -33,6 +33,10 @@ def main() -> None:
     validate.add_argument("--spec", type=Path, required=True)
     validate.add_argument("--batch")
     validate.add_argument("--report", type=Path)
+    admit = commands.add_parser('admit', help='Check pinned pre-downloaded payload/specification hashes')
+    admit.add_argument('--manifest', type=Path, required=True)
+    admit.add_argument('--data-root', type=Path, required=True)
+    admit.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.command == "spec":
         import polars as pl
@@ -64,6 +68,10 @@ def main() -> None:
         if args.report:
             save_json(args.report, report)
         print(json.dumps(report, indent=2, allow_nan=False))
+    else:
+        from prot_loc_benchmark.workflows.features import admit_inputs
+        admit_inputs(args.manifest, args.data_root, args.output)
+        print(json.dumps({'admission': str(args.output)}))
 
 
 if __name__ == "__main__":

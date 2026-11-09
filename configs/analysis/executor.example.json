@@ -1,0 +1,11 @@
+{
+  "cpu": [
+    "/path/to/python",
+    "/path/to/existing/run_bounded.py",
+    "--name", "{job}",
+    "--cpus", "{cpus}",
+    "--memory-gib", "{memory_gib}",
+    "--seconds", "{seconds}",
+    "--"
+  ]
+}

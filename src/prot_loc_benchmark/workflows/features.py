@@ -213,3 +213,62 @@ def write_artifact(frame: pl.DataFrame, specification: dict, output: str | Path,
                "outputs_sha256": {p.name: sha256(p) for p in output.iterdir() if p.is_file()}}
     save_json(output / "artifact.json", receipt)
     return receipt
+
+
+def admit_inputs(manifest_path, data_root, output):
+    """Verify pre-downloaded payloads/specifications; perform no downloads or normalization."""
+    root = Path(__file__).resolve().parents[3]
+    manifest = json.loads(Path(manifest_path).read_text())
+    if not re.fullmatch(r'[0-9a-f]{40}', manifest['revision']):
+        raise ValueError('Declare an immutable dataset revision')
+    verified = {}
+    for entry in [*manifest['features'], manifest['clinical_annotation']]:
+        path = (Path(data_root) / entry['path']).resolve()
+        if not path.is_relative_to(Path(data_root).resolve()):
+            raise ValueError('Payload escapes data root')
+        if ('size' in entry and path.stat().st_size != entry['size']) or sha256(path) != entry['sha256']:
+            raise ValueError('Payload hash/size mismatch: ' + str(path))
+        verified[str(path)] = entry['sha256']
+        if 'spec' in entry:
+            spec = Path(entry['spec']); spec = spec if spec.is_absolute() else root / spec
+            if sha256(spec) != entry['spec_sha256']:
+                raise ValueError('Feature specification hash mismatch')
+            verified[str(spec)] = entry['spec_sha256']
+    entry = manifest['hpa_annotation']; annotation = Path(entry['path'])
+    annotation = annotation if annotation.is_absolute() else root / annotation
+    if sha256(annotation) != entry['sha256']:
+        raise ValueError('Curated HPA annotation hash mismatch')
+    verified[str(annotation)] = entry['sha256']
+    save_json(output, dict(status='complete', dataset_revision=manifest['revision'],
+        manifest_sha256=sha256(manifest_path), inputs_sha256=verified,
+        downloaded=False, hpa_source='Separately pinned local curated annotation',
+        scope='Pinned byte identities verified; not evidence of fresh downloads or numerical scoring.'))
+
+
+def pool_hpa(inputs, model, channels, output):
+    import polars as pl
+    frames, specs, bindings = [], [], {}
+    for batch, features, specification in inputs:
+        admission = dict(path=str(features), spec=str(specification), batch=batch, sha256=sha256(features))
+        frame, spec, _ = load_artifact(admission['path'], admission['spec'], batch=admission['batch'])
+        frame = frame.filter((pl.col('Metadata_node_type') == 'disease_wt') & pl.col('Metadata_Plate').str.ends_with('T4'))
+        frames.append(frame); specs.append(spec)
+        bindings[admission['path']] = admission['sha256']
+    common = sorted(set.intersection(*(set(spec['features']) for spec in specs)))
+    channels = {channel: [name for name in common if all(name in spec['channels'][channel] for spec in specs)]
+                for channel in channels}
+    if any(not values for values in channels.values()):
+        raise ValueError('HPA has an empty common channel feature intersection')
+    metadata = [name for name in frames[0].columns if name.startswith('Metadata_') and all(name in f.columns for f in frames)]
+    # Qualified identities have already been verified; source IDs, when present, remain metadata.
+    assert QUALIFIED_ID in metadata
+    selected = pl.concat([frame.select(*metadata, *common) for frame in frames], how='vertical_relaxed')
+    common = sorted({name for values in channels.values() for name in values})
+    selected = selected.select(*metadata, *common)
+    preprocessing = specs[0]['preprocessing']
+    if preprocessing['kind'] == 'fitted' or any(spec['preprocessing'] != preprocessing for spec in specs):
+        raise ValueError('Pooling requires consistent unfitted or released-cleaned preprocessing declarations')
+    declaration = dict(schema_version=1, model=model, features=common, channels=channels,
+                       preprocessing=preprocessing)
+    write_artifact(selected, declaration, output, provenance=dict(inputs_sha256=bindings,
+        selection='T4 disease_wt cells from all declared batches; sorted common feature intersection; no normalization'))
