@@ -74,6 +74,8 @@ def hit_cohorts(
     task: str,
     settings: list[tuple[str, str]],
     biorep_pairs: dict[str, tuple[str, str]] = BIOREP_PAIRS,
+    *,
+    all_rule: str = "any_complete_pair",
 ) -> dict[str, pl.DataFrame]:
     """Return batch audit, shared mask, allele summaries and setting denominators.
 
@@ -82,8 +84,13 @@ def hit_cohorts(
     channel and batch. Thresholds must already match scoring backend/settings;
     this checks values, not calibration provenance or control adequacy.
     Complete-pair 'any'/'all' requires either/both batches within a pair to hit;
-    any successful pair makes the allele a hit. Producer fields are preserved.
+    any successful pair makes the allele a hit by default. For the candidate's
+    archived ALL contract, all_rule='all_retained_batches' instead requires
+    hits in every retained batch of every complete pair. Unpaired batches are
+    excluded from both complete-pair rules. Producer fields are preserved.
     """
+    if all_rule not in {"any_complete_pair", "all_retained_batches"}:
+        raise ValueError("all_rule must be any_complete_pair or all_retained_batches")
     selected = pl.DataFrame(settings, schema=SETTING, orient="row")
     if selected.is_empty() or selected.is_duplicated().any():
         raise ValueError("Provide distinct, nonempty representation/channel settings")
@@ -127,8 +134,11 @@ def hit_cohorts(
     for cohort, data in zip(cohorts, [shared, complete, complete]):
         aggregate = pl.col("reporting_hit").all() if cohort.endswith("_all") else pl.col("reporting_hit").any()
         data = data.with_columns(pair_hit=aggregate.over(SETTING + ["allele", "pair_name"]))
+        allele_hit = (pl.col("pair_hit").all()
+                      if cohort.endswith("_all") and all_rule == "all_retained_batches"
+                      else pl.col("pair_hit").any())
         parts.append(data.group_by(SETTING + ["allele"]).agg(
-            mean_score=pl.col("score").mean(), hit=pl.col("pair_hit").any(),
+            mean_score=pl.col("score").mean(), hit=allele_hit,
             n_batches=pl.col("batch").n_unique(),
         ).with_columns(cohort=pl.lit(cohort)))
     alleles = pl.concat(parts).sort("cohort", *SETTING, "allele")
