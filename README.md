@@ -77,6 +77,9 @@ for commands, output locations, and input requirements.
 
 ## Benchmark workflow
 
+See [explicit result reporting](docs/result_reporting.md) for clinical and
+predictor summaries, tables and figures from saved scores.
+
 For identity-checked inputs and explicit T4 scoring, see
 [explicit feature evaluation](docs/explicit_features.md).
 
