@@ -77,6 +77,9 @@ for commands, output locations, and input requirements.
 
 ## Benchmark workflow
 
+For identity-checked inputs and explicit T4 scoring, see
+[explicit feature evaluation](docs/explicit_features.md).
+
 See [evaluation execution](docs/evaluation_execution.md) for explicit device
 allocation, reusable matched controls, and classifier/copairs worker limits.
 
