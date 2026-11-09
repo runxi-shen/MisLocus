@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import seaborn as sns
-from copairs.map import mean_average_precision
+from prot_loc_benchmark.copairs_runtime import mean_average_precision
 from copairs.map.multilabel import average_precision as average_precision_multilabel
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

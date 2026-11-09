@@ -127,7 +127,7 @@ def run_classifier_tasks(
             for future in as_completed(futures):
                 r = future.result()
                 if r is None:
-                    continue
+                    raise ValueError("Classifier unavailable; refusing a partial calibrated run")
 
                 n_classifiers += 1
                 pair = r["pair"]

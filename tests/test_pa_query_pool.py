@@ -28,6 +28,13 @@ class PAQueryPoolChecks(unittest.TestCase):
             "x": [1., .8, .6, .9, .7, 0., .1, .2, .1, .3, .95],
             "y": [0., .2, .4, .1, .3, 1., .9, .8, .9, .7, .05],
         })
+        # Keep this ordering test fully supported in both split modes.
+        pool = pool.vstack(pl.DataFrame({
+            "Metadata_gene_allele": ["G"] * 3, "Metadata_symbol": ["G"] * 3,
+            "Metadata_node_type": ["disease_wt"] * 3,
+            "Metadata_Plate": ["P1T1", "P1T2", "P1T3"],
+            "x": [.1, .2, .3], "y": [.9, .8, .7],
+        }))
         observed = []
         real_ap = pa.average_precision
 
@@ -44,7 +51,7 @@ class PAQueryPoolChecks(unittest.TestCase):
             self.assertEqual(partners(positive, 3), {0, 1, 2, 4})
             self.assertEqual(partners(negative, 3), {5})
             self.assertEqual(partners(positive, 4), {0, 1, 2, 3, 10})
-            self.assertFalse(any(a in {5, 6, 9} and b in {5, 6, 9} for a, b in positive))
+            self.assertFalse(any(a in {5, 6, 9, 11, 12, 13} and b in {5, 6, 9, 11, 12, 13} for a, b in positive))
             return result
 
         for split, indices in [("t4", [3, 4, 7, 10]), (None, [0, 1, 2, 3, 4, 7, 8, 10])]:

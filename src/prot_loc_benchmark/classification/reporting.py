@@ -12,6 +12,7 @@ from pathlib import Path
 import polars as pl
 
 from prot_loc_benchmark.config import NULL_PERCENTILE
+from .metrics import compute_null_threshold
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,8 @@ def plot_auroc_distributions(
         )
         return
 
+    thresholds = compute_null_threshold(control_metrics)
+
     fig, axes = plt.subplots(1, n_ch, figsize=(4 * n_ch, 4), sharey=False)
     if n_ch == 1:
         axes = [axes]
@@ -105,7 +108,7 @@ def plot_auroc_distributions(
                 color="coral", density=True)
 
         if len(ctrl_auroc) > 0:
-            pval = float(np.quantile(ctrl_auroc[~np.isnan(ctrl_auroc)], NULL_PERCENTILE / 100.0))
+            pval = thresholds[ch]
             ax.axvline(pval, color="navy", linestyle="--", linewidth=1.5,
                        label=f"p{NULL_PERCENTILE}={pval:.3f}")
 
