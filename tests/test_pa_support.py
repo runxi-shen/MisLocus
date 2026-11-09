@@ -129,7 +129,76 @@ class PASupportChecks(unittest.TestCase):
                     run(pool())
                 mean_ap.assert_not_called()
 
+    def test_single_loo_error_cannot_produce_partial_calibration(self):
+        controls = pl.DataFrame([
+            {"Metadata_gene_allele": "G", "Metadata_symbol": "G", "Metadata_node_type": "disease_wt",
+             "Metadata_Control": "NC", "Metadata_plate_map_name": "P1", "Metadata_Plate": f"P1T{t}",
+             "Metadata_well_position": well, "Metadata_ImageNumber": well,
+             "x": x, "y": 1. - x}
+            for t in [1, 4] for well, x in [("A01", .1), ("A02", .5), ("A03", .9)]
+        ])
+        real_map = pa._compute_map_vs_ref
+        calls = []
 
+        def fail_second(*args, **kwargs):
+            calls.append(args[1])
+            if len(calls) == 2:
+                raise RuntimeError("synthetic control failure")
+            return real_map(*args, **kwargs)
+
+        with patch.object(pa, "_compute_map_vs_ref", side_effect=fail_second):
+            with self.assertRaisesRegex(RuntimeError, "synthetic control failure"):
+                pa._compute_control_null(controls, {"EMBED": ["x", "y"]}, 20, 0, "site", True,
+                                         32, .05, 42, 1, "t4", min_cells=1)
+        self.assertEqual(len(calls), 2)
+        full = pa._compute_control_null(controls, {"EMBED": ["x", "y"]}, 20, 0, "site", True,
+                                        32, .05, 42, 1, "t4", min_cells=1)
+        self.assertEqual(full.height, 3)
+        self.assertTrue(full["mAP_vs_ref_norm"].is_finite().all())
+        # One well has no T4 pseudo-query: exclude that run explicitly, without
+        # confusing it with a failed calculation in either remaining well.
+        missing_t4 = controls.filter(~((pl.col("Metadata_well_position") == "A01") &
+                                      (pl.col("Metadata_Plate") == "P1T4")))
+        remaining = pa._compute_control_null(missing_t4, {"EMBED": ["x", "y"]}, 20, 0, "site", True,
+                                             32, .05, 42, 1, "t4", min_cells=1)
+        self.assertEqual(set(remaining["well_var"]), {"A02", "A03"})
+
+    def test_top_level_control_error_vs_explicit_empty_controls(self):
+        for mode in ["failure", "empty_controls", "empty_queries"]:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                features = pool().filter(~pl.col("Metadata_Plate").str.ends_with("T4")) if mode == "empty_queries" else pool()
+                with patch.object(pa, "PHENOTYPIC_ACTIVITY_DIR", root), \
+                        patch.object(pa, "_load_dl", return_value=features), \
+                        patch.object(pa, "_resolve_alleles", return_value=["G_V", "G_W"]), \
+                        patch.object(pa, "get_feature_channels", return_value={"EMBED": ["x", "y"]}), \
+                        patch.object(pa, "_compute_control_null", return_value=pl.DataFrame(),
+                                     side_effect=RuntimeError("control failed") if mode == "failure" else None) as control_null, \
+                        patch.object(pa, "record") as record, \
+                        patch.object(pa.sys, "argv", ["09c_classify_PA.py", "--batch", BATCH,
+                                     "--representation", "vit", "--test-split", "t4", "--null-size", "32",
+                                     "--max-workers", "1"]):
+                    output = root / "vit_t4" / BATCH
+                    if mode != "empty_controls":
+                        output.mkdir(parents=True)
+                        previous = output / "mAP_results.parquet"
+                        previous.write_bytes(b"previous result must not be rebound to this failed run")
+                        error, message = (RuntimeError, "control failed") if mode == "failure" else (SystemExit, "^1$")
+                        with self.assertRaisesRegex(error, message):
+                            pa.main()
+                        record.assert_not_called()
+                        if mode == "empty_queries":
+                            control_null.assert_not_called()
+                        self.assertEqual(list(root.rglob("*.parquet")), [previous])
+                        self.assertEqual(previous.read_bytes(), b"previous result must not be rebound to this failed run")
+                    else:
+                        pa.main()
+                        record.assert_called_once_with(output_dirs=[output])
+                        scores = pl.read_parquet(output / "mAP_results.parquet")
+                        self.assertEqual(scores["is_hit"].null_count(), scores.height)
+                        report = hit_cohorts(scores, "pa", [("vit", "EMBED")])
+                        self.assertTrue(report["shared_mask"].is_empty())
+                        self.assertEqual(report["batch_audit"]["reporting_hit"].null_count(), scores.height)
 
 
 if __name__ == "__main__":

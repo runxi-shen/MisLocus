@@ -604,7 +604,6 @@ def _compute_control_null(
 
     rows: list[pl.DataFrame] = []
     skipped = 0
-    failed = 0
     for allele, platemap, wells, category in groups:
         for w_var in wells:
             w_refs = [w for w in wells if w != w_var]
@@ -613,24 +612,14 @@ def _compute_control_null(
                 skipped += 1
                 continue
             for ch_name, ch_feats in channel_map.items():
-                # A pseudo-variant well can become empty after a test_split
-                # (e.g. T4 dropped that well via QC), which trips an int-div
-                # in copairs. Catch per-(pair × channel) so one bad combo
-                # doesn't void the whole batch's thresholds.
-                try:
-                    ch_ctrl = _compute_map_vs_ref(
-                        pool, [loo_id], ch_feats,
-                        cells_per_site, neg_per_plate, sample_level, aggregate,
-                        null_size, threshold, seed, max_workers,
-                        test_split=test_split,
-                    )
-                except Exception as e:
-                    failed += 1
-                    logger.debug(
-                        "LOO control failed: %s/%s/%s/%s (%s) — skipping",
-                        allele, platemap, w_var, ch_name, e,
-                    )
-                    continue
+                # Empty queries are explicit exclusions. Unexpected failures
+                # must abort rather than calibrate on a silently partial null.
+                ch_ctrl = _compute_map_vs_ref(
+                    pool, [loo_id], ch_feats,
+                    cells_per_site, neg_per_plate, sample_level, aggregate,
+                    null_size, threshold, seed, max_workers,
+                    test_split=test_split,
+                )
                 if ch_ctrl.is_empty():
                     skipped += 1
                     continue
@@ -644,11 +633,8 @@ def _compute_control_null(
                         category=pl.lit(category),
                     )
                 )
-    if skipped or failed:
-        logger.info(
-            "Control null (LOO): skipped=%d (empty result), failed=%d (exception in copairs)",
-            skipped, failed,
-        )
+    if skipped:
+        logger.info("Control null (LOO): skipped=%d (empty result)", skipped)
     if not rows:
         return pl.DataFrame()
     return pl.concat(rows, how="diagonal")
@@ -1013,15 +999,11 @@ def run_phenotypic_activity(
     # ── Empirical control null (NC + PC, leave-one-out) ──────────────
     if control_null:
         logger.info("─── Control null (LOO NC+PC, p%d) ───", int(null_percentile))
-        try:
-            control_results = _compute_control_null(
-                df_full, channel_map,
-                cells_per_site, neg_per_plate, sample_level, aggregate,
-                ctrl_null_size, threshold, seed, max_workers, test_split,
-            )
-        except Exception as e:
-            logger.warning("Control null failed (%s) — skipping hit calls", e)
-            control_results = pl.DataFrame()
+        control_results = _compute_control_null(
+            df_full, channel_map,
+            cells_per_site, neg_per_plate, sample_level, aggregate,
+            ctrl_null_size, threshold, seed, max_workers, test_split,
+        )
 
         if control_results.is_empty():
             logger.warning("Control null: no mAP scores produced — skipping hit calls")
@@ -1280,30 +1262,28 @@ def main() -> None:
     test_split = None if args.test_split == "none" else args.test_split
     rep_suffix = f"_{test_split}" if test_split else ""
     output_dir = PHENOTYPIC_ACTIVITY_DIR / f"{args.representation}{rep_suffix}" / args.batch
-    try:
-        run_phenotypic_activity(
-            batch_id=args.batch,
-            representation=args.representation,
-            scope=args.scope,
-            cells_per_site=args.cells_per_site,
-            neg_per_plate=args.neg_per_plate,
-            sample_level=args.sample_level,
-            aggregate=args.aggregate,
-            hpa=args.hpa,
-            hpa_threshold=args.hpa_threshold,
-            hpa_consensus=args.hpa_consensus,
-            null_size=args.null_size,
-            threshold=args.threshold,
-            max_workers=args.max_workers,
-            cp_feature_file=args.cp_feature_file,
-            test_split=test_split,
-            control_null=args.control_null,
-            null_percentile=args.null_percentile,
-            ctrl_null_size=args.ctrl_null_size,
-        )
-    finally:
-        if output_dir.exists():
-            record(output_dirs=[output_dir])
+    run_phenotypic_activity(
+        batch_id=args.batch,
+        representation=args.representation,
+        scope=args.scope,
+        cells_per_site=args.cells_per_site,
+        neg_per_plate=args.neg_per_plate,
+        sample_level=args.sample_level,
+        aggregate=args.aggregate,
+        hpa=args.hpa,
+        hpa_threshold=args.hpa_threshold,
+        hpa_consensus=args.hpa_consensus,
+        null_size=args.null_size,
+        threshold=args.threshold,
+        max_workers=args.max_workers,
+        cp_feature_file=args.cp_feature_file,
+        test_split=test_split,
+        control_null=args.control_null,
+        null_percentile=args.null_percentile,
+        ctrl_null_size=args.ctrl_null_size,
+    )
+    if output_dir.exists():
+        record(output_dirs=[output_dir])
 
 
 if __name__ == "__main__":
