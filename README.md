@@ -77,6 +77,9 @@ for commands, output locations, and input requirements.
 
 ## Benchmark workflow
 
+The [sequential analysis runner](docs/analysis_runner.md) plans and executes
+the declared released-feature matrix with bounded jobs and verified resume.
+
 The optional [ALL aggregation policy](docs/all_aggregation.md) is an explicit
 reporting definition; its existing default is preserved.
 
