@@ -34,7 +34,8 @@ import time
 import numpy as np
 import pandas as pd
 import polars as pl
-from copairs.map import average_precision, mean_average_precision
+from copairs.map import average_precision
+from prot_loc_benchmark.copairs_runtime import mean_average_precision
 from copairs.map.multilabel import average_precision as average_precision_multilabel
 from copairs.matching import assign_reference_index
 
