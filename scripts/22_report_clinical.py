@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--annotations', type=Path, required=True, help='Public allele_inventory.parquet or equivalent raw-column annotation table')
     parser.add_argument('--predictors', nargs='+', default=['clinvar'], choices=['clinvar', 'alphamissense', 'esm1b', 'revel', 'mutpred'])
     parser.add_argument('--biorep-pairs', type=Path, help='JSON object: pair name -> [batch1,batch2]; defaults to the six released batches')
+    parser.add_argument('--all-rule', choices=['any_complete_pair', 'all_retained_batches'], default='any_complete_pair',
+                        help='ALL across one successful complete pair or every retained batch across complete pairs')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.output.exists():
@@ -59,7 +61,7 @@ def main():
         declarations.append({'model': model, 'batch': batch, 'file': str(path.resolve())})
     settings = [(canonical_representation(model), channel) for model, channel in args.setting]
     details = clinical_tables(frames, task=args.task, settings=settings, biorep_pairs=pairs,
-                              annotations=args.annotations, selected_predictors=args.predictors, output=args.output)
+                              annotations=args.annotations, selected_predictors=args.predictors, output=args.output, all_rule=args.all_rule)
     if input_hashes != {name: sha256(name) for name in input_hashes}:
         raise ValueError('Inputs changed during reporting')
     if source_hashes != {str(p.relative_to(ROOT)): sha256(p) for p in sources}:

@@ -66,7 +66,7 @@ def benjamini_hochberg(values: list[float]) -> list[float]:
 
 def clinical_tables(frames: list[pl.DataFrame], *, task: str, settings: list[tuple[str, str]],
                     biorep_pairs: dict[str, tuple[str, str]], annotations: Path,
-                    selected_predictors: list[str], output: Path) -> dict:
+                    selected_predictors: list[str], output: Path, all_rule: str = 'any_complete_pair') -> dict:
     """Report declared settings; incomplete hypothesis families keep q unavailable."""
     from scipy.stats import fisher_exact, mannwhitneyu
     for frame in frames:
@@ -76,8 +76,7 @@ def clinical_tables(frames: list[pl.DataFrame], *, task: str, settings: list[tup
             provided = frame.filter(valid)['reporting_hit']
             if provided.dtype != pl.Boolean or provided.null_count() or not provided.equals(checked.filter(valid)['reporting_hit']):
                 raise ValueError('Producer reporting_hit disagrees with calibrated values')
-    all_rule = 'any_complete_pair'
-    cohorts = hit_cohorts(frames, task, settings, biorep_pairs)
+    cohorts = hit_cohorts(frames, task, settings, biorep_pairs, all_rule=all_rule)
     labels, conflicts = annotation_labels(annotations, selected_predictors)
     alleles = cohorts['allele_summary']
     # A missing allele needs one explicit missing-label record per predictor.

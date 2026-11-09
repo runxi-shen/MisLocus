@@ -77,6 +77,9 @@ for commands, output locations, and input requirements.
 
 ## Benchmark workflow
 
+The optional [ALL aggregation policy](docs/all_aggregation.md) is an explicit
+reporting definition; its existing default is preserved.
+
 See [explicit result reporting](docs/result_reporting.md) for clinical and
 predictor summaries, tables and figures from saved scores.
 

@@ -24,6 +24,9 @@ def main():
                         help="Explicit settings whose finite support is intersected")
     parser.add_argument("--output-dir", type=Path, required=True,
                         help="Must not already exist; failed runs may leave an empty directory")
+    parser.add_argument("--all-rule", choices=["any_complete_pair", "all_retained_batches"],
+                        default="any_complete_pair",
+                        help="ALL within any complete pair (default), or across every retained complete-pair batch")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=False)
     frames, inputs = [], []
@@ -43,13 +46,14 @@ def main():
         frames.append(frame)
         inputs.append({"file": path.name, "sha256": digest, "representation": rep, "batch": batch})
     settings = [(canonical_representation(rep), channel) for rep, channel in args.setting]
-    outputs = hit_cohorts(frames, args.task, settings)
+    outputs = hit_cohorts(frames, args.task, settings, all_rule=args.all_rule)
     for name, frame in outputs.items():
         frame.write_parquet(args.output_dir / f"{name}.parquet")
     outputs["denominators"].write_csv(args.output_dir / "denominators.csv")
     # Written last: identifies a completed report, not a producer/calibration receipt.
     (args.output_dir / "report.json").write_text(json.dumps({
         "task": args.task, "settings": settings, "inputs": inputs,
+        "all_rule": args.all_rule,
         "calibration": "Caller-supplied thresholds; matching backend/settings and control adequacy not verified here",
         "bh": "Existing producer corrected p-values reused; no recomputation",
     }, indent=2) + "\n")
