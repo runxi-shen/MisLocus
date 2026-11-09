@@ -32,6 +32,7 @@ import sys
 import time
 
 import numpy as np
+import pandas as pd
 import polars as pl
 from copairs.map import average_precision, mean_average_precision
 from copairs.map.multilabel import average_precision as average_precision_multilabel
@@ -285,6 +286,8 @@ def _run_map(
 
     Positive pairs:  same allele + same reference_index (-1), different plates.
     Negative pairs:  differ in allele + reference_index, same neg_sameby group.
+    Queries without matching references are excluded, not removed from the pool:
+    they may still supply cross-plate positives for supported queries.
 
     ``test_split`` filters the per-row APs before per-allele aggregation.
     Currently supports ``"t4"`` (keep only rows on T4 plates). The pool
@@ -295,6 +298,8 @@ def _run_map(
     """
     if neg_sameby is None:
         neg_sameby = ["Metadata_Plate"]
+    if pool_pl.is_empty():
+        return pd.DataFrame()
 
     pool = pool_pl.to_pandas()
     pool = assign_reference_index(
@@ -306,6 +311,24 @@ def _run_map(
 
     non_feat = [c for c in pool.columns if c not in feat_cols]
     feats_np = pool[feat_cols].to_numpy().astype(np.float32)
+
+    query_mask = pool[REFERENCE_COL] == -1
+    if test_split == "t4":
+        query_mask &= pool["Metadata_Plate"].str.endswith("T4")
+    reference_groups = pd.MultiIndex.from_frame(pool.loc[pool[REFERENCE_COL] != -1, neg_sameby])
+    supported = pd.MultiIndex.from_frame(pool[neg_sameby]).isin(reference_groups)
+    missing_reference = query_mask & ~supported
+    logger.info(
+        "Query support (%s): excluding %d/%d query profiles without matching references",
+        label, int(missing_reference.sum()), int(query_mask.sum()),
+    )
+    query_mask &= supported
+    if not query_mask.any():
+        logger.info("%s: no eligible query profiles", label)
+        return pd.DataFrame()
+    norms = np.linalg.norm(feats_np, axis=1)
+    if not np.isfinite(feats_np).all() or not np.isfinite(norms).all() or (norms <= 0).any():
+        raise ValueError("Cosine retrieval requires finite profiles with positive finite norms")
 
     # Strict vs_ref pairing rules.
     # Positives: same variant allele, both with REFERENCE_COL=-1, on
@@ -328,18 +351,12 @@ def _run_map(
     )
 
     # Compute mAP + p-values + BH FDR (variant cells only)
-    ap_variant = ap_scores[ap_scores[REFERENCE_COL] == -1]
-
-    if test_split == "t4":
-        mask = ap_variant["Metadata_Plate"].str.endswith("T4")
-        n_before, n_after = len(ap_variant), int(mask.sum())
-        logger.info(
-            "T4 filter (%s): %d → %d variant rows (%d alleles → %d)",
-            label, n_before, n_after,
-            ap_variant["Metadata_gene_allele"].nunique(),
-            ap_variant.loc[mask, "Metadata_gene_allele"].nunique(),
-        )
-        ap_variant = ap_variant.loc[mask]
+    ap_variant = ap_scores.loc[query_mask.reindex(ap_scores.index)]
+    unsupported = (ap_variant["n_pos_pairs"] <= 0) | (ap_variant["n_total_pairs"] <= ap_variant["n_pos_pairs"])
+    if unsupported.any() or not np.isfinite(
+        ap_variant[["average_precision", "normalized_average_precision"]].to_numpy()
+    ).all():
+        raise ValueError("Unsupported PA queries: finite AP and positive and negative partners are required")
 
     map_scores = mean_average_precision(
         ap_variant,
