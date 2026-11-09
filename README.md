@@ -51,8 +51,8 @@ From the repository root on **Linux x86-64**, with [Pixi](https://pixi.sh/instal
 installed:
 
 ```bash
-# Install only the default dependencies, not the project package.
-pixi install --frozen -e default --skip prot-loc-benchmark
+# Install the locked default environment and editable project package.
+pixi install --locked -e default
 
 # Start with one representation and batch; no crop archives are downloaded.
 .pixi/envs/default/bin/python scripts/00_download_dataset.py \
@@ -76,6 +76,9 @@ Continue with [CPU scoring and script navigation](docs/dataset_bundle.md#run-cpu
 for commands, output locations, and input requirements.
 
 ## Benchmark workflow
+
+Use the [minimal scoring workflow](docs/minimal_scoring.md) for the canonical
+published-feature evaluation commands and their declared T4 protocol.
 
 The intended analysis flow is:
 

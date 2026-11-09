@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "dataset_revision": "74f63113a76b4a832285da308f3df2932266e456",
+  "settings": [
+    [
+      "subcell_finetuned_vit",
+      "EMBED"
+    ],
+    [
+      "subcell_finetuned_mae",
+      "EMBED"
+    ],
+    [
+      "subcell_portable_rbg_mae",
+      "EMBED"
+    ],
+    [
+      "subcell_portable_rbg_vit",
+      "EMBED"
+    ],
+    [
+      "vit",
+      "ALL"
+    ],
+    [
+      "vit",
+      "GFP"
+    ],
+    [
+      "cytoself",
+      "combined"
+    ],
+    [
+      "cellprofiler",
+      "ALL"
+    ],
+    [
+      "cellprofiler",
+      "GFP"
+    ]
+  ],
+  "batches": [
+    "2024_01_23_Batch_7",
+    "2024_02_06_Batch_8",
+    "2025_01_27_Batch_13",
+    "2025_01_28_Batch_14",
+    "2025_03_17_Batch_15",
+    "2025_03_17_Batch_16"
+  ],
+  "experimental_train_plates": [
+    "T1",
+    "T2",
+    "T3"
+  ],
+  "experimental_test_plate": "T4",
+  "xgb": {
+    "n_estimators": 150,
+    "learning_rate": 0.05,
+    "tree_method": "hist",
+    "random_state": 0,
+    "n_jobs": 1,
+    "label_orientation": "WT=1,variant=0",
+    "scale_pos_weight": "n_variant/n_WT",
+    "threshold": "nearest p95 of finite NC/PC classifier AUROCs; strict score > threshold",
+    "default_control_policy": "complete",
+    "available_control_exceptions": [
+      {
+        "representation": "cellprofiler",
+        "batch": "2024_02_06_Batch_8",
+        "channel": "ALL"
+      },
+      {
+        "representation": "cellprofiler",
+        "batch": "2024_02_06_Batch_8",
+        "channel": "GFP"
+      },
+      {
+        "representation": "vit",
+        "batch": "2024_02_06_Batch_8",
+        "channel": "ALL"
+      },
+      {
+        "representation": "subcell_portable_rbg_mae",
+        "batch": "2024_02_06_Batch_8",
+        "channel": "EMBED"
+      },
+      {
+        "representation": "subcell_portable_rbg_vit",
+        "batch": "2024_02_06_Batch_8",
+        "channel": "EMBED"
+      }
+    ]
+  },
+  "pa": {
+    "sampling": "site medians; full gallery; supported T4 queries",
+    "experimental_draws": 10000,
+    "control_draws": 1000,
+    "seed": 42,
+    "threshold": "linear p95 of normalized leave-one-well-out control scores",
+    "hit_rule": "score > p95 AND supported-family BH q < 0.05"
+  },
+  "hpa": {
+    "cells": "pooled six-batch T4 disease_wt cells",
+    "aggregation": "direct per-gene cell-feature median; sorted common-feature intersection",
+    "reliability": 1.0,
+    "testing": "BH across all 27 returned locations per channel before display filtering",
+    "display": "at least three measured genes; floor negative scores for display only"
+  },
+  "all_rule": "all_retained_batches",
+  "predictors": [
+    "clinvar",
+    "alphamissense",
+    "esm1b",
+    "revel",
+    "mutpred"
+  ],
+  "runtime": {
+    "python": "3.12",
+    "numpy": "1.26.4",
+    "copairs": "0.5.4",
+    "xgboost": "3.2.0",
+    "CUDA_VERSION": [
+      12,
+      9
+    ],
+    "xgboost_library_sha256": "5bef6f0136387fef8887c970feb74993e695883bbccf0712a6b94defd04c8e3a",
+    "qualified_gpu_name": "NVIDIA H100 NVL",
+    "qualified_driver": "580.159.03",
+    "cpu_xgboost_library_sha256": "8eb4fe53735cfb67b0b255bb21df65d7fea7b9e1cfe3fd48c0cab32c762db1f8"
+  },
+  "resource_limits": {
+    "cpus": 8,
+    "memory_gib": 64,
+    "seconds_per_job": 1800,
+    "tasks": 512,
+    "gpu_mib": 8192
+  }
+}

@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 import time
 
@@ -56,6 +55,7 @@ from prot_loc_benchmark.config import (
     CLASSIFICATION_OUTPUT_DIR,
     INTERIM_DIR,
     MIN_CELL_COUNT,
+    XGBOOST_PARAMS,
     REP_FEATURE_FILES,
     canonical_representation,
 )
@@ -83,8 +83,12 @@ def classify_batch(
     use_gpu: bool = False,
     unseen_only: bool = False,
     channels: list[str] | None = None,
+    workers: int = 2,
+    threads: int = 1,
 ) -> None:
     """Run full classification pipeline for one batch + representation."""
+    if workers < 1 or threads < 1:
+        raise ValueError("workers and threads must be positive")
     t0 = time.time()
 
     # ── Resolve paths and config ─────────────────────────────────────
@@ -114,9 +118,7 @@ def classify_batch(
     logger.info("=" * 70)
 
     # ── Device selection ─────────────────────────────────────────────
-    if use_gpu:
-        os.environ["MISLOCUS_CLASSIFIER_BACKEND"] = "gpu"
-    device = select_device()
+    device = select_device("gpu" if use_gpu else None)
     logger.info("Device: %s", device)
 
     # ── Load features ────────────────────────────────────────────────
@@ -217,7 +219,8 @@ def classify_batch(
     )
 
     metrics_rows, importance_rows, info_rows, n_classifiers = run_classifier_tasks(
-        tasks, device=device, output_dir=output_dir,
+        tasks, device=device, output_dir=output_dir, workers=workers,
+        xgb_params={**XGBOOST_PARAMS, "n_jobs": threads},
     )
 
     # ── Write output files ───────────────────────────────────────────
@@ -329,6 +332,8 @@ def main() -> None:
             "~2/3 of runtime)."
         ),
     )
+    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--threads", type=int, default=1)
     args = parser.parse_args()
 
     suffix = "_unseen" if args.unseen_only else ""
@@ -339,19 +344,14 @@ def main() -> None:
         if args.channels else None
     )
 
-    try:
-        classify_batch(
-            batch_id=args.batch,
-            representation=args.representation,
-            scope=args.scope,
-            use_gpu=args.gpu,
-            unseen_only=args.unseen_only,
-            channels=channels,
-        )
-    finally:
-        if output_dir.exists():
-            from prot_loc_benchmark.provenance import record
-            record(output_dirs=[output_dir])
+    classify_batch(
+        batch_id=args.batch, representation=args.representation, scope=args.scope,
+        use_gpu=args.gpu, unseen_only=args.unseen_only, channels=channels,
+        workers=args.workers, threads=args.threads,
+    )
+    if output_dir.exists():
+        from prot_loc_benchmark.provenance import record
+        record(output_dirs=[output_dir])
 
 
 if __name__ == "__main__":

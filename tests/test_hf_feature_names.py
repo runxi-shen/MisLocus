@@ -29,7 +29,7 @@ def load_script(name):
 
 download = load_script('00_download_dataset')
 xgb = load_script('09_classify')
-pa = load_script('09c_classify_PA')
+from prot_loc_benchmark.workflows import phenotypic_activity as pa
 hpa = load_script('10b_benchmark_hpa')
 clinical = load_script('10_benchmark_clinvar')
 summary = load_script('11_summarize_across_reps')

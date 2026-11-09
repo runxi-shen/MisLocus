@@ -142,7 +142,7 @@ def generate_folds_multi_rep(df: pl.DataFrame) -> list[CVFold]:
     return folds
 
 
-def generate_folds(df: pl.DataFrame, layout: str) -> list[CVFold]:
+def generate_folds(df: pl.DataFrame, layout: str, test_split: str | None = None) -> list[CVFold]:
     """Generate CV folds based on plate layout.
 
     Args:
@@ -153,6 +153,11 @@ def generate_folds(df: pl.DataFrame, layout: str) -> list[CVFold]:
         - single_rep: up to 4 folds (leave-one-plate-out)
         - multi_rep: C(4,2)=6 folds (choose-2 well-pairs for test)
     """
+    if test_split not in (None, "t4"):
+        raise ValueError(f"Unknown test split: {test_split}")
+    if test_split and (layout != "single_rep" or df["Metadata_Plate"].null_count()
+                       or not df["Metadata_Plate"].str.contains(r"T[1-4]$").all()):
+        raise ValueError("T4 holdout requires single_rep and explicit T1/T2/T3/T4 plates")
     if layout == "single_rep":
         folds = generate_folds_single_rep(df)
     elif layout == "multi_rep":
@@ -160,6 +165,9 @@ def generate_folds(df: pl.DataFrame, layout: str) -> list[CVFold]:
     else:
         raise ValueError(f"Unknown layout: {layout!r}")
 
+    if test_split:
+        folds = [f for f in folds if all(p.endswith("T4") for p in f.test_plates)
+                 and len(f.train_plates) == 3 and {p[-2:] for p in f.train_plates} == {"T1", "T2", "T3"}]
     logger.debug("Generated %d CV folds for layout=%s", len(folds), layout)
     return folds
 

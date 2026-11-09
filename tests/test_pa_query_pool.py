@@ -9,11 +9,7 @@ import pandas as pd
 import polars as pl
 from copairs.matching import find_pairs
 
-spec = importlib.util.spec_from_file_location(
-    "pa_query_pool", Path(__file__).resolve().parents[1] / "scripts/09c_classify_PA.py"
-)
-pa = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(pa)
+from prot_loc_benchmark.workflows import phenotypic_activity as pa
 
 
 class PAQueryPoolChecks(unittest.TestCase):
