@@ -259,7 +259,8 @@ class HFFeatureNameChecks(unittest.TestCase):
                 RuntimeError, 'admission checked'
             ):
                 pa.run_phenotypic_activity(BATCH, name)
-        self.assertTrue((self.root / 'xgb' / 'vit' / BATCH).is_dir())
+        # XGB reserves outputs only after input/calibration validation succeeds.
+        self.assertFalse((self.root / 'xgb' / 'vit' / BATCH).exists())
         self.assertTrue((self.root / 'pa' / 'vit' / BATCH).is_dir())
         self.assertFalse((self.root / 'xgb' / 'morphem').exists())
         self.assertFalse((self.root / 'pa' / 'morphem').exists())

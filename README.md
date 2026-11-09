@@ -77,6 +77,9 @@ for commands, output locations, and input requirements.
 
 ## Benchmark workflow
 
+See [evaluation execution](docs/evaluation_execution.md) for explicit device
+allocation, reusable matched controls, and classifier/copairs worker limits.
+
 The intended analysis flow is:
 
 ```text
